@@ -9,19 +9,23 @@ import {
   TouchableOpacity,
   TouchableWithoutFeedback,
   TextInput,
+  Platform,
   ScrollView,
   Alert,
   Modal,
+  SafeAreaView,
+  StatusBar,
   Dimensions
 } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
-import { MaterialCommunityIcons } from '@expo/vector-icons';
+import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 
-const { width: screenWidth } = Dimensions.get('window');
-const SLIDER_WIDTH = Math.min(screenWidth * 0.85, 350);
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
+const SLIDER_WIDTH = SCREEN_WIDTH * 0.85;
 
 const EditContactSlider = ({ isVisible, onClose, onSave, contact }) => {
   const slideAnim = useRef(new Animated.Value(SLIDER_WIDTH)).current;
+  const fadeAnim = useRef(new Animated.Value(0)).current;
   const debounceTimeoutRef = useRef(null);
 
   const [name, setName] = useState('');
@@ -31,8 +35,10 @@ const EditContactSlider = ({ isVisible, onClose, onSave, contact }) => {
   const [familyRelation, setFamilyRelation] = useState('');
   const [friendDetails, setFriendDetails] = useState('');
   
+  // Store the original phone number to detect changes
   const [originalPhone, setOriginalPhone] = useState('');
   
+  // Track if this contact is an existing user
   const [isExistingUser, setIsExistingUser] = useState(false);
   const [existingUserFullName, setExistingUserFullName] = useState('');
 
@@ -47,6 +53,7 @@ const EditContactSlider = ({ isVisible, onClose, onSave, contact }) => {
       setFamilyRelation(contact.familyRelation || '');
       setFriendDetails(contact.friendDetails || '');
     } else {
+      // Reset fields if contact becomes null
       setName('');
       setPhone('(   )    -    ');
       setOriginalPhone('');
@@ -58,7 +65,7 @@ const EditContactSlider = ({ isVisible, onClose, onSave, contact }) => {
     }
   }, [contact]);
 
-  // Check existing users based on phone number
+  // useEffect for checking existing users based on phone number
   useEffect(() => {
     const rawPhone = phone.replace(/\D/g, '');
 
@@ -122,26 +129,36 @@ const EditContactSlider = ({ isVisible, onClose, onSave, contact }) => {
     };
   }, [phone, isExistingUser]);
 
-  // Animation effect
+  // Animation useEffect
   useEffect(() => {
     if (isVisible) {
-      Animated.timing(slideAnim, {
-        toValue: 0,
-        duration: 300,
-        useNativeDriver: true,
-      }).start();
+      Animated.parallel([
+        Animated.timing(slideAnim, {
+          toValue: 0,
+          duration: 300,
+          useNativeDriver: true,
+        }),
+        Animated.timing(fadeAnim, {
+          toValue: 0.5,
+          duration: 300,
+          useNativeDriver: true,
+        })
+      ]).start();
     } else {
-      Animated.timing(slideAnim, {
-        toValue: SLIDER_WIDTH,
-        duration: 300,
-        useNativeDriver: true,
-      }).start();
+      Animated.parallel([
+        Animated.timing(slideAnim, {
+          toValue: SLIDER_WIDTH,
+          duration: 300,
+          useNativeDriver: true,
+        }),
+        Animated.timing(fadeAnim, {
+          toValue: 0,
+          duration: 300,
+          useNativeDriver: true,
+        })
+      ]).start();
     }
-  }, [isVisible, slideAnim]);
-
-  if (!contact) {
-    return null;
-  }
+  }, [isVisible, slideAnim, fadeAnim]);
 
   // Format phone number for display and editing
   const formatPhoneForEditing = (phoneStr) => {
@@ -159,11 +176,11 @@ const EditContactSlider = ({ isVisible, onClose, onSave, contact }) => {
     return masked.join('');
   };
 
-  const formatPhoneInput = (text) => {
+  const handlePhoneChange = (text) => {
     const cursorPosition = selection.start;
     const prevPhone = phone;
     
-    const specialPositions = [0, 4, 5, 9];
+    const specialPositions = [0, 4, 5, 9]; // '(', ')', ' ', '-'
     const digitSlots = [1, 2, 3, 6, 7, 8, 10, 11, 12, 13];
     
     const isBackspaceAtSpecial = 
@@ -189,7 +206,6 @@ const EditContactSlider = ({ isVisible, onClose, onSave, contact }) => {
     }
     
     const digits = text.replace(/\D/g, '').slice(0, 10);
-    
     let masked = '(   )    -    '.split('');
     
     for (let i = 0; i < digits.length; i++) {
@@ -254,6 +270,7 @@ const EditContactSlider = ({ isVisible, onClose, onSave, contact }) => {
         return;
       }
       
+      // Handle special fields based on relationship type
       let updatedFamilyRelation = null;
       let updatedFriendDetails = null;
       
@@ -265,6 +282,7 @@ const EditContactSlider = ({ isVisible, onClose, onSave, contact }) => {
         updatedFriendDetails = friendDetails.trim() || null;
       }
       
+      // Prepare the contact data for update
       const contactData = {
         name: isExistingUser ? existingUserFullName : name.trim(),
         phone: phone.trim(),
@@ -276,6 +294,7 @@ const EditContactSlider = ({ isVisible, onClose, onSave, contact }) => {
       
       console.log('EditContactSlider - contactData for update:', contactData);
       
+      // Update in Supabase
       const { data, error } = await supabase
         .from('connections')
         .update(contactData)
@@ -288,6 +307,7 @@ const EditContactSlider = ({ isVisible, onClose, onSave, contact }) => {
         return;
       }
       
+      // Create an updated contact object for the local state
       const updatedContact = {
         id: data[0].id,
         name: data[0].name,
@@ -308,16 +328,22 @@ const EditContactSlider = ({ isVisible, onClose, onSave, contact }) => {
     }
   };
 
+  if (!isVisible || !contact) {
+    return null;
+  }
+
   return (
     <Modal
       visible={isVisible}
-      animationType="none"
       transparent={true}
+      animationType="none"
       onRequestClose={onClose}
     >
-      <View style={styles.container}>
+      <SafeAreaView style={styles.container}>
+        <StatusBar barStyle="light-content" backgroundColor="rgba(0,0,0,0.5)" />
+        
         <TouchableWithoutFeedback onPress={onClose}>
-          <View style={styles.overlay} />
+          <Animated.View style={[styles.overlay, { opacity: fadeAnim }]} />
         </TouchableWithoutFeedback>
 
         <Animated.View
@@ -332,11 +358,11 @@ const EditContactSlider = ({ isVisible, onClose, onSave, contact }) => {
           <View style={styles.header}>
             <Text style={styles.headerText}>Edit Contact</Text>
             <TouchableOpacity onPress={onClose} style={styles.closeButton}>
-              <MaterialCommunityIcons name="close" size={24} color="#333" />
+              <Icon name="close" size={24} color="#333" />
             </TouchableOpacity>
           </View>
 
-          <ScrollView contentContainerStyle={styles.content}>
+          <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
             <Text style={styles.label}>
               Contact Name {isExistingUser && <Text style={{color: '#4CAF50'}}>(Existing User)</Text>}
             </Text>
@@ -346,7 +372,6 @@ const EditContactSlider = ({ isVisible, onClose, onSave, contact }) => {
               value={name}
               onChangeText={setName}
               editable={!isExistingUser}
-              placeholderTextColor="#999"
             />
             {isExistingUser && (
               <Text style={styles.existingUserNote}>
@@ -357,22 +382,12 @@ const EditContactSlider = ({ isVisible, onClose, onSave, contact }) => {
             <Text style={styles.label}>Contact Phone Number</Text>
             <TextInput
               style={styles.input}
-              placeholder=""
+              placeholder="(   )    -    "
               value={phone}
-              onChangeText={formatPhoneInput}
-              onFocus={() => {
-                const digits = phone.replace(/\D/g, '');
-                const digitSlots = [1, 2, 3, 6, 7, 8, 10, 11, 12, 13];
-                
-                if (digits.length < digitSlots.length) {
-                  setSelection({ start: digitSlots[digits.length], end: digitSlots[digits.length] });
-                } else {
-                  setSelection({ start: 1, end: 1 });
-                }
-              }}
+              onChangeText={handlePhoneChange}
               selection={selection}
               keyboardType="phone-pad"
-              placeholderTextColor="#999"
+              returnKeyType="next"
             />
 
             <Text style={styles.label}>Relationship</Text>
@@ -431,7 +446,8 @@ const EditContactSlider = ({ isVisible, onClose, onSave, contact }) => {
                     if (text.length <= 50) setFriendDetails(text);
                   }}
                   maxLength={50}
-                  placeholderTextColor="#999"
+                  multiline={true}
+                  numberOfLines={2}
                 />
               </>
             )}
@@ -441,7 +457,7 @@ const EditContactSlider = ({ isVisible, onClose, onSave, contact }) => {
             </TouchableOpacity>
           </ScrollView>
         </Animated.View>
-      </View>
+      </SafeAreaView>
     </Modal>
   );
 };
@@ -449,11 +465,10 @@ const EditContactSlider = ({ isVisible, onClose, onSave, contact }) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    justifyContent: 'flex-end',
   },
   overlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    backgroundColor: '#000',
   },
   slider: {
     position: 'absolute',
@@ -472,9 +487,9 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     padding: 16,
-    paddingTop: 50,
     borderBottomWidth: 1,
     borderBottomColor: '#e0e0e0',
+    paddingTop: Platform.OS === 'ios' ? 50 : 16,
   },
   headerText: {
     fontSize: 18,
@@ -486,28 +501,29 @@ const styles = StyleSheet.create({
   },
   content: {
     padding: 16,
-    paddingBottom: 50,
+    paddingBottom: 100,
   },
   label: {
     fontSize: 14,
     color: '#333',
     marginBottom: 4,
     marginTop: 12,
+    fontWeight: '500',
   },
   input: {
     borderWidth: 1,
     borderColor: '#ccc',
-    borderRadius: 4,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    fontSize: 14,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    fontSize: 16,
     color: '#333',
     backgroundColor: '#fff',
   },
   pickerContainer: {
     borderWidth: 1,
     borderColor: '#ccc',
-    borderRadius: 4,
+    borderRadius: 8,
     overflow: 'hidden',
     marginTop: 4,
     backgroundColor: '#fff',
@@ -518,10 +534,15 @@ const styles = StyleSheet.create({
   },
   saveButton: {
     backgroundColor: '#1E88E5',
-    paddingVertical: 12,
-    borderRadius: 4,
-    marginTop: 20,
+    paddingVertical: 15,
+    borderRadius: 8,
+    marginTop: 30,
     alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
   },
   saveButtonText: {
     color: '#fff',

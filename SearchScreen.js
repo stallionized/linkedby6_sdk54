@@ -215,6 +215,16 @@ const ChatMessage = ({ message }) => {
         ]}>
           {message.text}
         </Text>
+        
+        {/* ADDED: Show business count if AI message has business IDs */}
+        {message.type === 'ai' && message.businessIds && message.businessIds.length > 0 && (
+          <View style={styles.businessCountBadge}>
+            <Ionicons name="business-outline" size={12} color={colors.primaryBlue} />
+            <Text style={styles.businessCountText}>
+              {message.businessIds.length} business{message.businessIds.length !== 1 ? 'es' : ''} found
+            </Text>
+          </View>
+        )}
       </View>
     </View>
   );
@@ -243,6 +253,8 @@ const SearchScreen = ({ navigation, route }) => {
   const [loadingPaths, setLoadingPaths] = useState({});
   const [hasInitialized, setHasInitialized] = useState(false);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
+  // ADDED: Loading state for business profiles
+  const [loadingBusinessProfiles, setLoadingBusinessProfiles] = useState(false);
 
   // Slider states
   const [chatSliderVisible, setChatSliderVisible] = useState(false);
@@ -250,7 +262,7 @@ const SearchScreen = ({ navigation, route }) => {
   const [addToProjectSliderVisible, setAddToProjectSliderVisible] = useState(false);
   const [selectedBusinessId, setSelectedBusinessId] = useState(null);
 
-  // Animation refs - CHANGED: Start from negative value for left slide
+  // Animation refs
   const chatSlideAnim = useRef(new Animated.Value(-CHAT_SLIDER_WIDTH)).current;
   const businessSlideAnim = useRef(new Animated.Value(BUSINESS_SLIDER_WIDTH)).current;
 
@@ -272,6 +284,7 @@ const SearchScreen = ({ navigation, route }) => {
     setIsTyping(false);
     setError(null);
     setLoadingPaths({});
+    setLoadingBusinessProfiles(false);
     setBusinessSliderVisible(false);
     setAddToProjectSliderVisible(false);
     setSelectedBusinessId(null);
@@ -365,7 +378,7 @@ const SearchScreen = ({ navigation, route }) => {
     loadUserSessionAndData();
   }, []);
 
-  // FIXED: fetchNeo4jSettings with proper error handling for mobile
+  // Fetch Neo4j settings
   useEffect(() => {
     const fetchNeo4jSettings = async () => {
       const settingKeys = ['admin_neo4j_uri', 'admin_neo4j_username', 'admin_neo4j_password'];
@@ -380,7 +393,6 @@ const SearchScreen = ({ navigation, route }) => {
 
         if (error) {
           console.warn('⚠️ Supabase error fetching Neo4j settings:', error);
-          // For mobile, just log warning instead of showing alert
           console.warn('Neo4j connection features may be limited due to configuration issue');
           setNeo4jConfig(null);
           return;
@@ -398,7 +410,6 @@ const SearchScreen = ({ navigation, route }) => {
           
           console.log('🔧 Parsed Neo4j config keys:', Object.keys(config));
           
-          // Check if all required keys are present and not empty
           const missingKeys = settingKeys.filter(key => !config[key] || config[key].trim() === '');
           
           if (missingKeys.length === 0) {
@@ -441,7 +452,6 @@ const SearchScreen = ({ navigation, route }) => {
     
     console.log('Initializing search screen for user:', currentUserId);
     
-    // Initialize fresh state
     setIsLoadingSettings(true);
     setError(null);
     
@@ -449,7 +459,6 @@ const SearchScreen = ({ navigation, route }) => {
     setSessionId(newSessionId);
     console.log('Generated new session ID:', newSessionId);
     
-    // Set welcome message
     setMessages([{ 
       _id: `welcome_${Date.now()}`, 
       text: "Welcome! Ask me anything about businesses or services you're looking for.", 
@@ -457,7 +466,6 @@ const SearchScreen = ({ navigation, route }) => {
       type: 'system' 
     }]);
     
-    // Fetch webhook URL
     const fetchMS2WebhookUrl = async () => {
       try {
         const { data, error } = await supabase
@@ -494,7 +502,7 @@ const SearchScreen = ({ navigation, route }) => {
     
   }, [currentUserId, hasInitialized]);
 
-  // Send message handler (mirroring web version)
+  // UPDATED: Send message handler with better business ID extraction
   const handleSendMessage = async (text) => {
     const messageText = text || inputText;
     if (!messageText.trim() || isTyping) return;
@@ -524,6 +532,8 @@ const SearchScreen = ({ navigation, route }) => {
     setError(null);
     
     try {
+      console.log('🚀 Sending message to webhook:', messageText.trim());
+      
       const response = await fetch(ms2WebhookUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -553,19 +563,23 @@ const SearchScreen = ({ navigation, route }) => {
         throw new Error(`Invalid JSON response: ${responseText.substring(0, 100)}${responseText.length > 100 ? '...' : ''}`); 
       }
       
+      console.log('📥 Raw AI response data:', JSON.stringify(aiResponseData, null, 2));
+      
       let aiResponseText = '';
       let businessIds = [];
       let hasBusinessIds = false;
       
-      // Parse response (same logic as web version)
+      // ENHANCED: Better business ID extraction logic (same as web version)
       if (Array.isArray(aiResponseData) && aiResponseData.length > 0 && aiResponseData[0].output) {
         const outputText = aiResponseData[0].output;
         aiResponseText = outputText;
         
+        // Look for JSON code block first
         const jsonBlockMatch = outputText.match(/```json\s*\n([\s\S]*?)\n\s*```/);
         if (jsonBlockMatch && jsonBlockMatch[1]) {
           try {
             const jsonData = JSON.parse(jsonBlockMatch[1]);
+            console.log('📊 Parsed JSON from code block:', jsonData);
             if (jsonData.business_ids) { 
               businessIds = jsonData.business_ids; 
               hasBusinessIds = true; 
@@ -575,10 +589,30 @@ const SearchScreen = ({ navigation, route }) => {
             }
             if (hasBusinessIds) {
               aiResponseText = outputText.replace(/```json\s*\n[\s\S]*?\n\s*```/g, '').trim() || 
-                "I found some businesses that might interest you. Check out the list below.";
+                "I found some businesses that might interest you. Check out the results below.";
             }
           } catch (e) { 
             console.error('Error parsing JSON from code block:', e); 
+          }
+        } else {
+          // Fallback: Look for business_ids in the text
+          const businessIdsMatch = outputText.match(/"business_ids":\s*(\[[^\]]+\])/);
+          if (businessIdsMatch && businessIdsMatch[1]) {
+            try {
+              businessIds = JSON.parse(businessIdsMatch[1]);
+              hasBusinessIds = true;
+              console.log('📊 Found business_ids in text:', businessIds);
+            } catch (e) {
+              console.error('Error parsing business_ids from output text:', e);
+            }
+          } else {
+            // Look for single business_id
+            const businessIdMatch = outputText.match(/"business_id":\s*"([^"]+)"/);
+            if (businessIdMatch && businessIdMatch[1]) {
+              businessIds = [businessIdMatch[1]];
+              hasBusinessIds = true;
+              console.log('📊 Found single business_id in text:', businessIds);
+            }
           }
         }
       } else if (aiResponseData && aiResponseData.answer) {
@@ -590,11 +624,27 @@ const SearchScreen = ({ navigation, route }) => {
           businessIds = [aiResponseData.business_id]; 
           hasBusinessIds = true; 
         }
+      } else if (Array.isArray(aiResponseData) && aiResponseData.length > 0 && (aiResponseData[0].business_ids || aiResponseData[0].business_id)) {
+        if (aiResponseData[0].business_ids) {
+          businessIds = aiResponseData[0].business_ids;
+          hasBusinessIds = true;
+        } else if (aiResponseData[0].business_id) {
+          businessIds = [aiResponseData[0].business_id];
+          hasBusinessIds = true;
+        }
+        aiResponseText = aiResponseData[0].output || aiResponseData[0].answer || "I found some businesses that might interest you. Check out the results below.";
       }
       
       if (hasBusinessIds && !aiResponseText) {
-        aiResponseText = "I found some businesses that might interest you. Check out the list below.";
+        aiResponseText = "I found some businesses that might interest you. Check out the results below.";
       }
+      
+      console.log('🎯 Final extracted data:', {
+        aiResponseText,
+        businessIds,
+        hasBusinessIds,
+        businessCount: businessIds.length
+      });
       
       const aiMessage = { 
         _id: (Date.now() + 1).toString(), 
@@ -606,8 +656,10 @@ const SearchScreen = ({ navigation, route }) => {
       
       setMessages(prev => [...prev, aiMessage]);
       
+      // FIXED: Fetch business profiles when business IDs are found
       if (businessIds.length > 0) {
-        fetchBusinessProfiles(businessIds);
+        console.log('🔍 Fetching business profiles for IDs:', businessIds);
+        await fetchBusinessProfiles(businessIds);
       }
       
     } catch (err) {
@@ -682,7 +734,7 @@ const SearchScreen = ({ navigation, route }) => {
     }
   };
 
-  // FIXED: fetchConnectionPath with better error handling
+  // Fetch connection path
   const fetchConnectionPath = async (businessId) => {
     if (!currentUserPhoneNumber || !businessId) {
       console.warn(`Cannot fetch connection path for businessId: ${businessId}. Missing user phone or business ID.`);
@@ -693,7 +745,6 @@ const SearchScreen = ({ navigation, route }) => {
       return;
     }
     
-    // Only proceed if we have Neo4j config or at least try the external service
     setLoadingPaths(prev => ({ ...prev, [businessId]: true }));
     
     try {
@@ -747,9 +798,12 @@ const SearchScreen = ({ navigation, route }) => {
     }
   };
 
-  // Fetch business profiles
+  // UPDATED: Fetch business profiles with loading state
   const fetchBusinessProfiles = async (ids) => {
     if (!ids || ids.length === 0) return;
+    
+    console.log('📋 Fetching business profiles for IDs:', ids);
+    setLoadingBusinessProfiles(true);
     
     try {
       const { data, error } = await supabase
@@ -771,18 +825,22 @@ const SearchScreen = ({ navigation, route }) => {
         
       if (error) throw error;
       
+      console.log('✅ Fetched business profiles:', data?.length || 0, 'businesses');
       setBusinessProfiles(data || []);
       
+      // Fetch connection paths for each business
       if (data && data.length > 0 && currentUserId) {
         data.forEach(business => fetchConnectionPath(business.business_id));
       }
     } catch (err) { 
       console.error('Failed to fetch business profiles:', err); 
       setError('Failed to load business profiles'); 
+    } finally {
+      setLoadingBusinessProfiles(false);
     }
   };
 
-  // UPDATED: Animation functions for left slide
+  // Animation functions
   const toggleChatSlider = useCallback(() => {
     const toValue = chatSliderVisible ? -CHAT_SLIDER_WIDTH : 0;
     
@@ -835,6 +893,7 @@ const SearchScreen = ({ navigation, route }) => {
     setIsTyping(false);
     setError(null);
     setLoadingPaths({});
+    setLoadingBusinessProfiles(false);
     
     const newSessionId = `session_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
     setSessionId(newSessionId);
@@ -843,7 +902,9 @@ const SearchScreen = ({ navigation, route }) => {
 
   // Handle business interactions
   const handleBusinessClick = (businessId) => {
-    navigation.navigate('BusinessProfilePage', { businessId });
+    // Instead of navigating to a non-existent screen, open the business profile slider
+    setSelectedBusinessId(businessId);
+    openBusinessSlider(businessId);
   };
 
   const handleBusinessLogoClick = (businessId) => {
@@ -865,7 +926,7 @@ const SearchScreen = ({ navigation, route }) => {
     }
   }, [messages, isTyping]);
 
-  // ADDED: Keyboard event listeners for chat
+  // Keyboard event listeners for chat
   useEffect(() => {
     const keyboardWillShowListener = Keyboard.addListener(
       Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
@@ -889,7 +950,7 @@ const SearchScreen = ({ navigation, route }) => {
     };
   }, [chatSliderVisible]);
 
-  // UPDATED: Pan responder for chat slider (from left) - Full screen width
+  // Pan responder for chat slider
   const chatPanResponder = PanResponder.create({
     onMoveShouldSetPanResponder: (evt, gestureState) => {
       return Math.abs(gestureState.dx) > Math.abs(gestureState.dy) && Math.abs(gestureState.dx) > 10;
@@ -959,6 +1020,14 @@ const SearchScreen = ({ navigation, route }) => {
             </View>
           )}
           
+          {/* ADDED: Loading state for business profiles */}
+          {loadingBusinessProfiles && (
+            <View style={styles.loadingBusinessContainer}>
+              <ActivityIndicator size="large" color={colors.primaryBlue} />
+              <Text style={styles.loadingBusinessText}>Loading businesses...</Text>
+            </View>
+          )}
+          
           {businessProfiles.length > 0 ? (
             <>
               <View style={styles.resultsHeaderContainer}>
@@ -986,7 +1055,7 @@ const SearchScreen = ({ navigation, route }) => {
                 />
               ))}
             </>
-          ) : (
+          ) : !loadingBusinessProfiles ? (
             <View style={styles.emptyResults}>
               <Ionicons name="search-outline" size={64} color={colors.textLight} />
               <Text style={styles.emptyResultsText}>Start your search</Text>
@@ -998,18 +1067,18 @@ const SearchScreen = ({ navigation, route }) => {
                 <Text style={styles.startChatButtonText}>Open AI Chat</Text>
               </TouchableOpacity>
             </View>
-          )}
+          ) : null}
         </ScrollView>
       </KeyboardAvoidingView>
 
-      {/* UPDATED: Chat Slider - Coming from LEFT side and filling safe area with keyboard handling */}
+      {/* Chat Slider */}
       <Animated.View 
         style={[
           styles.chatSlider,
           { 
             transform: [{ translateX: chatSlideAnim }],
-            top: insets.top, // Start below status bar
-            height: screenHeight - insets.top - insets.bottom, // Fill available space
+            top: insets.top,
+            height: screenHeight - insets.top - insets.bottom,
           }
         ]}
         {...chatPanResponder.panHandlers}
@@ -1039,7 +1108,7 @@ const SearchScreen = ({ navigation, route }) => {
           ref={chatScrollViewRef}
           style={[
             styles.chatMessages,
-            { marginBottom: keyboardHeight > 0 ? keyboardHeight + 80 : 80 } // Add margin when keyboard is open
+            { marginBottom: keyboardHeight > 0 ? keyboardHeight + 80 : 80 }
           ]}
           contentContainerStyle={styles.chatMessagesContent}
           showsVerticalScrollIndicator={false}
@@ -1056,13 +1125,13 @@ const SearchScreen = ({ navigation, route }) => {
           )}
         </ScrollView>
         
-        {/* UPDATED: Fixed positioned input container with keyboard offset */}
+        {/* Chat input container */}
         <View 
           style={[
             styles.chatInputWrapper,
             {
               position: 'absolute',
-              bottom: keyboardHeight, // Move above keyboard
+              bottom: keyboardHeight,
               left: 0,
               right: 0,
             }
@@ -1104,7 +1173,12 @@ const SearchScreen = ({ navigation, route }) => {
       {businessSliderVisible && (
         <Animated.View style={[
           styles.businessSlider,
-          { transform: [{ translateX: businessSlideAnim }] }
+          { 
+            transform: [{ translateX: businessSlideAnim }],
+            top: insets.top,
+            bottom: insets.bottom,
+            height: screenHeight - insets.top - insets.bottom,
+          }
         ]}>
           <BusinessProfileSlider
             isVisible={businessSliderVisible}
@@ -1172,6 +1246,19 @@ const styles = StyleSheet.create({
     fontSize: 14,
     marginLeft: 8,
     flex: 1,
+  },
+  // ADDED: Loading business profiles styles
+  loadingBusinessContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 60,
+  },
+  loadingBusinessText: {
+    marginTop: 16,
+    fontSize: 16,
+    color: colors.textMedium,
+    fontWeight: '500',
   },
   resultsHeaderContainer: {
     flexDirection: 'row',
@@ -1349,11 +1436,11 @@ const styles = StyleSheet.create({
     width: 60,
     marginRight: 8,
   },
-  // UPDATED: Chat Slider Styles for left slide, safe area, and full screen width
+  // Chat Slider Styles
   chatSlider: {
     position: 'absolute',
     left: 0,
-    width: CHAT_SLIDER_WIDTH, // 100% screen width
+    width: CHAT_SLIDER_WIDTH,
     backgroundColor: colors.cardWhite,
     elevation: 15,
     shadowColor: '#000',
@@ -1458,6 +1545,22 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     fontWeight: '500',
   },
+  // ADDED: Business count badge styles
+  businessCountBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 8,
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    backgroundColor: colors.backgroundGray,
+    borderRadius: 12,
+  },
+  businessCountText: {
+    fontSize: 12,
+    color: colors.primaryBlue,
+    fontWeight: '600',
+    marginLeft: 4,
+  },
   typingContainer: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1473,7 +1576,7 @@ const styles = StyleSheet.create({
     marginLeft: 8,
     fontStyle: 'italic',
   },
-  // UPDATED: Chat input wrapper for fixed positioning above keyboard
+  // Chat input wrapper for fixed positioning above keyboard
   chatInputWrapper: {
     backgroundColor: colors.cardWhite,
     borderTopWidth: 1,

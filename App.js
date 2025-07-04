@@ -25,7 +25,7 @@ function AppNavigator() {
         headerShown: false, // Hide headers for all screens
         cardStyle: { backgroundColor: 'transparent' },
         animationEnabled: true,
-        // Add gesture configuration for better slider performance
+        // Default gesture configuration
         gestureEnabled: true,
         gestureDirection: 'horizontal',
         cardStyleInterpolator: ({ current, layouts }) => {
@@ -46,51 +46,88 @@ function AppNavigator() {
     >
       <Stack.Screen name="Landing" component={LandingPage} />
       <Stack.Screen name="LoginScreen" component={LoginScreen} />
+      
+      {/* SearchScreen with custom gesture handling */}
       <Stack.Screen 
         name="Search" 
         component={SearchScreen}
         options={{
-          // Specific options for SearchScreen if needed
-          gestureEnabled: false, // Disable swipe back to prevent conflicts with chat slider
+          // Disable default swipe back to prevent conflicts with chat slider
+          gestureEnabled: false,
+          // Ensure proper animation for SearchScreen
+          animationEnabled: true,
         }}
       />
+      
+      {/* Other main screens */}
       <Stack.Screen 
         name="RecommendedBusinesses" 
         component={RecommendedBusinessesScreen}
         options={{
-          // Enable swipe back for RecommendedBusinesses screen
           gestureEnabled: true,
+          title: 'Recommended Businesses', // For accessibility
         }}
       />
       <Stack.Screen 
         name="ProjectQueue" 
         component={ProjectQueueScreen}
         options={{
-          // Enable swipe back for ProjectQueue screen
           gestureEnabled: true,
+          title: 'Project Queue', // For accessibility
         }}
       />
       <Stack.Screen 
         name="Connections" 
         component={ConnectionsScreen}
         options={{
-          // Enable swipe back for Connections screen
           gestureEnabled: true,
+          title: 'Connections', // For accessibility
         }}
       />
       <Stack.Screen 
         name="Settings" 
         component={SettingsScreen}
         options={{
-          // Enable swipe back for Settings screen
           gestureEnabled: true,
+          title: 'Settings', // For accessibility
         }}
       />
-      {/* Add more screens here as you convert them */}
-      {/* <Stack.Screen name="Registration" component={RegistrationScreen} /> */}
-      {/* <Stack.Screen name="Projects" component={ProjectsScreen} /> */}
-      {/* <Stack.Screen name="Messages" component={MessagesScreen} /> */}
-      {/* <Stack.Screen name="Profile" component={ProfileScreen} /> */}
+      
+      {/* Additional screens that might be needed for mobile app */}
+      {/* 
+      <Stack.Screen 
+        name="BusinessProfile" 
+        component={BusinessProfileScreen}
+        options={{
+          gestureEnabled: true,
+          title: 'Business Profile',
+        }}
+      />
+      <Stack.Screen 
+        name="UserProfile" 
+        component={UserProfileScreen}
+        options={{
+          gestureEnabled: true,
+          title: 'User Profile',
+        }}
+      />
+      <Stack.Screen 
+        name="Projects" 
+        component={ProjectsScreen}
+        options={{
+          gestureEnabled: true,
+          title: 'Projects',
+        }}
+      />
+      <Stack.Screen 
+        name="Messages" 
+        component={MessagesScreen}
+        options={{
+          gestureEnabled: true,
+          title: 'Messages',
+        }}
+      />
+      */}
     </Stack.Navigator>
   );
 }
@@ -106,11 +143,12 @@ export default function App() {
     <SafeAreaProvider>
       <AuthProvider>
         <GestureHandlerRootView style={styles.container}>
-          {/* Set StatusBar style for the entire app */}
+          {/* StatusBar configuration optimized for mobile */}
           <StatusBar 
-            barStyle={Platform.OS === 'ios' ? 'light-content' : 'light-content'} 
+            barStyle="light-content"
             backgroundColor="#1E88E5" 
             translucent={false}
+            animated={true}
           />
           
           {showSplash ? (

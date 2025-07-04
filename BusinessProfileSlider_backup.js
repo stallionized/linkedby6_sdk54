@@ -1421,6 +1421,7 @@ const BusinessProfileSlider = ({ isVisible, onClose, businessId, userId, viewSou
           { 
             transform: [{ translateX: slideAnim }],
             width: SLIDER_WIDTH,
+            height: '100%'
           }
         ]}
       >

@@ -1,81 +1,72 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import { supabase } from './supabaseClient';
 import { getSession } from './Auth';
 import { 
   View, 
   Text, 
+  TextInput, 
   TouchableOpacity, 
   StyleSheet, 
   FlatList, 
-  Alert, 
-  RefreshControl,
-  ActivityIndicator,
-  Dimensions
+  Platform, 
+  Modal, 
+  Image, 
+  ScrollView, 
+  Alert,
+  SafeAreaView,
+  StatusBar
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { MaterialIcons } from '@expo/vector-icons';
-import { useFocusEffect } from '@react-navigation/native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { Picker } from '@react-native-picker/picker';
+import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import * as Contacts from 'expo-contacts';
-import MobileBottomNavigation from './MobileBottomNavigation';
-import MobileHeader from './MobileHeader';
+// import { generateQRCode } from './utils/qrCodeUtils'; // You'll need to create this utility
 import AddContactSlider from './AddContactSlider';
 import EditContactSlider from './EditContactSlider';
-
-const { width: screenWidth } = Dimensions.get('window');
-
-const colors = {
-  primaryBlue: '#1E88E5',
-  lightBlue: '#90CAF9',
-  darkBlue: '#0D47A1',
-  backgroundGray: '#F5F7FA',
-  cardWhite: '#FFFFFF',
-  textDark: '#263238',
-  textMedium: '#546E7A',
-  textLight: '#90A4AE',
-  borderLight: '#E0E7FF',
-  success: '#10B981',
-  warning: '#F59E0B',
-  error: '#EF4444',
-};
 
 const relationshipOptions = ['Customer', 'Friend', 'Colleague', 'Family', 'Partner'];
 
 const ConnectionsScreen = ({ navigation, route }) => {
   const [contacts, setContacts] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
   const [userId, setUserId] = useState(null);
   const [businessId, setBusinessId] = useState(null);
-  const [currentUserId, setCurrentUserId] = useState(null);
   
   // State for bulk operations
   const [selectedContacts, setSelectedContacts] = useState([]);
   const [bulkRelationship, setBulkRelationship] = useState('Customer');
   const [showBulkActions, setShowBulkActions] = useState(false);
   
-  // State for sliders
-  const [showAddContactSlider, setShowAddContactSlider] = useState(false);
+  // State for edit contact slider
   const [showEditContactSlider, setShowEditContactSlider] = useState(false);
   const [currentEditContact, setCurrentEditContact] = useState(null);
+  
+  // State for add contact slider
+  const [showAddContactSlider, setShowAddContactSlider] = useState(false);
+  const [showQrModal, setShowQrModal] = useState(false);
+  const [qrCodeData, setQrCodeData] = useState('');
 
-  // Function to generate a consistent color from a business name
-  const getColorFromName = (name) => {
-    const colors = [
-      '#FF5733', '#33A8FF', '#FF33A8', '#A833FF', '#33FF57', 
-      '#FFD433', '#FF8333', '#3357FF', '#33FFEC', '#8CFF33'
-    ];
-    
-    let hash = 0;
-    for (let i = 0; i < name.length; i++) {
-      hash = name.charCodeAt(i) + ((hash << 5) - hash);
+  // Utility function to sync a contact to Neo4j
+  const syncContactToNeo4j = async (contact) => {
+    try {
+      // For mobile, you might want to use a different approach or skip Neo4j sync
+      // Since Neo4j driver doesn't work well in React Native
+      console.log('Syncing contact to Neo4j:', contact);
+      
+      // You could implement an API call to your backend here instead
+      // const response = await fetch(`${API_BASE_URL}/sync-contact`, {
+      //   method: 'POST',
+      //   headers: { 'Content-Type': 'application/json' },
+      //   body: JSON.stringify(contact),
+      // });
+      
+      return true;
+    } catch (syncError) {
+      console.warn('Error syncing contact to Neo4j:', syncError);
+      return false;
     }
-    
-    const index = Math.abs(hash) % colors.length;
-    return colors[index];
   };
 
-  // Contact card component
   const ContactRowCard = ({ contact, onEdit }) => {
     const { id, name, phone, relationship, familyRelation, friendDetails, isExistingUser } = contact;
     const initial = name?.charAt(0).toUpperCase() || '?';
@@ -83,14 +74,6 @@ const ConnectionsScreen = ({ navigation, route }) => {
     const formattedRelationship = relationship
       ? relationship.charAt(0).toUpperCase() + relationship.slice(1).toLowerCase()
       : '';
-
-    const relationshipColors = {
-      Family: '#800000',
-      Partner: '#C62828',
-      Friend: '#43A047',
-      Colleague: '#E65100',
-      Customer: '#8E24AA',
-    };
 
     const gradientMap = {
       Family: ['#A52A2A', '#800000'],
@@ -118,107 +101,35 @@ const ConnectionsScreen = ({ navigation, route }) => {
           end={{ x: 1, y: 1 }}
           style={contactCardStyles.logoContainer}
         >
-          <Text style={contactCardStyles.logoText}>{initial}</Text>
+          <Text style={[contactCardStyles.logoText, { color: '#fff' }]}>{initial}</Text>
         </LinearGradient>
-        
         <View style={contactCardStyles.infoContainer}>
-          <Text style={contactCardStyles.name} numberOfLines={1}>{name}</Text>
-          <Text style={contactCardStyles.phone} numberOfLines={1}>{phone}</Text>
+          <Text style={contactCardStyles.name}>{name}</Text>
+          <Text style={contactCardStyles.phone}>{phone}</Text>
           {isExistingUser && (
             <Text style={contactCardStyles.existingUserLabel}>Existing User</Text>
           )}
         </View>
-        
         <View style={contactCardStyles.relationshipContainer}>
-          <Text style={contactCardStyles.relationship} numberOfLines={2}>
+          <Text style={contactCardStyles.relationship}>
             {formattedRelationship}
             {formattedRelationship === 'Family' && familyRelation ? `\n${familyRelation}` : ''}
             {formattedRelationship === 'Friend' && friendDetails ? `\n${friendDetails}` : ''}
           </Text>
         </View>
-        
         <View style={contactCardStyles.actionsContainer}>
           <TouchableOpacity 
             style={contactCardStyles.editButton}
             onPress={() => onEdit(contact)}
           >
-            <MaterialIcons name="edit" size={16} color={colors.cardWhite} />
+            <Text style={contactCardStyles.editButtonText}>Edit</Text>
           </TouchableOpacity>
         </View>
       </TouchableOpacity>
     );
   };
 
-  // Load data
-  const loadUserData = async () => {
-    try {
-      const session = await getSession();
-      if (!session) {
-        console.error('No user is logged in');
-        return;
-      }
-      
-      const userId = session.user.id;
-      setCurrentUserId(userId);
-      setUserId(userId);
-      
-      // Fetch business profile
-      const { data: profileData, error: profileError } = await supabase
-        .from('business_profiles')
-        .select('business_id')
-        .eq('user_id', userId)
-        .single();
-      
-      if (profileError && profileError.code !== 'PGRST116') {
-        console.error('Error fetching business profile:', profileError);
-      }
-      
-      const currentBusinessId = profileData?.business_id || null;
-      setBusinessId(currentBusinessId);
-      
-      // Fetch connections
-      const { data, error } = await supabase
-        .from('connections')
-        .select('*')
-        .eq('user_id', userId);
-      
-      if (error) {
-        console.error('Error fetching connections:', error);
-        Alert.alert('Error', 'Failed to load contacts');
-      } else {
-        const formattedContacts = data.map(conn => ({
-          id: conn.id,
-          name: conn.name,
-          phone: conn.phone,
-          relationship: conn.relationship,
-          familyRelation: conn.family_relation,
-          friendDetails: conn.friend_details
-        }));
-        
-        setContacts(formattedContacts);
-      }
-    } catch (error) {
-      console.error('Error in loadUserData:', error);
-      Alert.alert('Error', 'Failed to load data');
-    }
-  };
-
-  // Focus effect to reload data when screen comes into focus
-  useFocusEffect(
-    useCallback(() => {
-      setLoading(true);
-      loadUserData().finally(() => setLoading(false));
-    }, [])
-  );
-
-  // Pull to refresh
-  const onRefresh = useCallback(async () => {
-    setRefreshing(true);
-    await loadUserData();
-    setRefreshing(false);
-  }, []);
-
-  // Handle contact selection for bulk operations
+  // Function to toggle contact selection for bulk operations
   const toggleSelectContact = (contactId) => {
     if (selectedContacts.includes(contactId)) {
       setSelectedContacts(selectedContacts.filter(cid => cid !== contactId));
@@ -233,132 +144,50 @@ const ConnectionsScreen = ({ navigation, route }) => {
     }
   };
 
-  // Delete contacts in bulk
-  const deleteBulkContacts = async () => {
-    if (selectedContacts.length === 0) return;
-    
-    Alert.alert(
-      'Confirm Deletion',
-      `Are you sure you want to delete ${selectedContacts.length} contact(s)?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Delete', style: 'destructive', onPress: performBulkDelete }
-      ]
-    );
-  };
-  
-  const performBulkDelete = async () => {
-    try {
-      const { error } = await supabase
-        .from('connections')
-        .delete()
-        .in('id', selectedContacts);
-        
-      if (error) {
-        console.error('Error deleting contacts:', error);
-        Alert.alert('Error', 'Failed to delete contacts. Please try again.');
-        return;
-      }
-      
-      setContacts(contacts.filter(c => !selectedContacts.includes(c.id)));
-      setSelectedContacts([]);
-      setShowBulkActions(false);
-      
-      Alert.alert('Success', `${selectedContacts.length} contact(s) deleted successfully.`);
-    } catch (error) {
-      console.error('Error in deleteBulkContacts:', error);
-      Alert.alert('Error', 'An error occurred while deleting contacts.');
-    }
-  };
-
-  // Apply bulk relationship change
-  const applyBulkRelationship = async () => {
-    try {
-      for (const contactId of selectedContacts) {
-        const currentContact = contacts.find(c => c.id === contactId);
-        if (!currentContact) continue;
-        
-        const updateData = {
-          relationship: bulkRelationship,
-          family_relation: bulkRelationship === 'Family' ? currentContact.familyRelation : null,
-          friend_details: bulkRelationship === 'Friend' ? currentContact.friendDetails : null
-        };
-        
-        await supabase
-          .from('connections')
-          .update(updateData)
-          .eq('id', contactId);
-      }
-      
-      setContacts(contacts.map(c => {
-        if (selectedContacts.includes(c.id)) {
-          return { 
-            ...c, 
-            relationship: bulkRelationship,
-            familyRelation: bulkRelationship === 'Family' ? c.familyRelation : null,
-            friendDetails: bulkRelationship === 'Friend' ? c.friendDetails : null
-          };
-        }
-        return c;
-      }));
-      
-      setSelectedContacts([]);
-      setShowBulkActions(false);
-      
-      Alert.alert('Success', `Updated ${selectedContacts.length} contact(s) to ${bulkRelationship} relationship.`);
-    } catch (error) {
-      console.error('Error in applyBulkRelationship:', error);
-      Alert.alert('Error', 'An error occurred while updating relationships.');
-    }
-  };
-
-  // Handle editing a contact
+  // Function to handle editing a contact
   const handleEditContact = (contact) => {
     setCurrentEditContact(contact);
     setShowEditContactSlider(true);
   };
-  
-  // Handle saving edited contact
+
+  // Function to handle saving edited contact
   const handleSaveEditedContact = (updatedContact) => {
     setContacts(contacts.map(c => 
       c.id === updatedContact.id ? updatedContact : c
     ));
   };
 
-  // Handle saving new contact
   const handleSaveContact = (contact) => {
     setContacts(prev => [...prev, contact]);
   };
 
   // Import contacts from device
-  const importContacts = async () => {
+  const importDeviceContacts = async () => {
     try {
+      // Request permission
       const { status } = await Contacts.requestPermissionsAsync();
-      
       if (status !== 'granted') {
-        Alert.alert('Permission Required', 'Please grant contacts permission to import contacts.');
+        Alert.alert('Permission required', 'Please grant contacts permission to import contacts.');
         return;
       }
 
+      // Get contacts
       const { data } = await Contacts.getContactsAsync({
         fields: [Contacts.Fields.Name, Contacts.Fields.PhoneNumbers],
       });
 
       if (data.length > 0) {
-        // Show selection dialog or import all
+        // Show contact selection or import all
         Alert.alert(
           'Import Contacts',
-          `Found ${data.length} contacts. Import all as "Customer" relationship?`,
+          `Found ${data.length} contacts. Import all?`,
           [
             { text: 'Cancel', style: 'cancel' },
-            { 
-              text: 'Import All', 
-              onPress: () => processImportedContacts(data)
-            }
+            { text: 'Import All', onPress: () => processImportedContacts(data) }
           ]
         );
       } else {
-        Alert.alert('No Contacts', 'No contacts found on this device.');
+        Alert.alert('No Contacts', 'No contacts found on device.');
       }
     } catch (error) {
       console.error('Error importing contacts:', error);
@@ -368,27 +197,31 @@ const ConnectionsScreen = ({ navigation, route }) => {
 
   const processImportedContacts = async (deviceContacts) => {
     try {
+      const session = await getSession();
+      const currentUserId = session?.user?.id;
+      
       if (!currentUserId) {
         Alert.alert('Authentication Error', 'You must be logged in to import contacts.');
         return;
       }
-      
+
       const contactsToInsert = deviceContacts
-        .filter(c => c.name && c.phoneNumbers && c.phoneNumbers.length > 0)
-        .map(c => ({
+        .filter(contact => contact.name && contact.phoneNumbers?.length > 0)
+        .map(contact => ({
           user_id: currentUserId,
-          name: c.name,
-          contact_phone_number: c.phoneNumbers[0].number,
+          business_id: businessId,
+          name: contact.name,
+          phone: contact.phoneNumbers[0].number || '',
           relationship: 'Customer',
           family_relation: null,
           friend_details: null
         }));
-      
+
       if (contactsToInsert.length === 0) {
-        Alert.alert('No Valid Contacts', 'No contacts with names and phone numbers found.');
+        Alert.alert('No Valid Contacts', 'No contacts with both name and phone number found.');
         return;
       }
-      
+
       const { data, error } = await supabase
         .from('connections')
         .insert(contactsToInsert)
@@ -396,195 +229,243 @@ const ConnectionsScreen = ({ navigation, route }) => {
         
       if (error) {
         console.error('Error saving imported contacts:', error);
-        Alert.alert('Error', 'Failed to save imported contacts. Please try again.');
+        Alert.alert('Error', 'Failed to save imported contacts.');
         return;
       }
-      
+
       const formattedContacts = data.map(conn => ({
         id: conn.id,
         name: conn.name,
-        phone: conn.contact_phone_number,
+        phone: conn.phone,
         relationship: conn.relationship,
         familyRelation: conn.family_relation,
         friendDetails: conn.friend_details
       }));
-      
+
+      // Sync to Neo4j
+      for (const contact of data) {
+        await syncContactToNeo4j(contact);
+      }
+
       setContacts(prev => [...prev, ...formattedContacts]);
       Alert.alert('Success', `${formattedContacts.length} contacts imported successfully.`);
     } catch (error) {
-      console.error('Error in processImportedContacts:', error);
+      console.error('Error processing imported contacts:', error);
       Alert.alert('Error', 'An error occurred while importing contacts.');
     }
   };
 
-  // Render relationship tallies
-  const renderTallies = () => {
-    const counts = {};
-    contacts.forEach(c => {
-      const rel = (c.relationship || '').toLowerCase();
-      counts[rel] = (counts[rel] || 0) + 1;
-    });
-    
-    const categories = ['customer', 'friend', 'colleague', 'family', 'partner'];
-    const total = contacts.length;
-    
-    const gradientMap = {
-      family: ['#A52A2A', '#800000'],
-      partner: ['#E53935', '#C62828'],
-      friend: ['#66BB6A', '#43A047'],
-      colleague: ['#FB8C00', '#E65100'],
-      customer: ['#BA68C8', '#8E24AA'],
+  // Fetch user session, business profile, and connections on component mount
+  useEffect(() => {
+    const fetchUserAndConnections = async () => {
+      try {
+        setLoading(true);
+        
+        const session = await getSession();
+        const currentUserId = session?.user?.id;
+        
+        if (!currentUserId) {
+          console.error('No user is logged in');
+          setLoading(false);
+          return;
+        }
+        
+        setUserId(currentUserId);
+        
+        // Fetch business profile
+        const { data: profileData, error: profileError } = await supabase
+          .from('business_profiles')
+          .select('business_id')
+          .eq('user_id', currentUserId)
+          .single();
+        
+        if (profileError && profileError.code !== 'PGRST116') {
+          console.error('Error fetching business profile:', profileError);
+        }
+        
+        const currentBusinessId = profileData?.business_id || null;
+        setBusinessId(currentBusinessId);
+        
+        // Fetch connections
+        const { data, error } = await supabase
+          .from('connections')
+          .select('*')
+          .eq('user_id', currentUserId);
+        
+        if (error) {
+          console.error('Error fetching connections:', error);
+        } else {
+          const formattedContacts = data.map(conn => ({
+            id: conn.id,
+            name: conn.name,
+            phone: conn.phone,
+            relationship: conn.relationship,
+            familyRelation: conn.family_relation,
+            friendDetails: conn.friend_details
+          }));
+          
+          setContacts(formattedContacts);
+        }
+      } catch (error) {
+        console.error('Error in fetchUserAndConnections:', error);
+      } finally {
+        setLoading(false);
+      }
     };
     
-    return (
-      <View style={styles.tallyContainer}>
-        <LinearGradient
-          colors={['#1565C0', '#0D47A1']}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={styles.tallyBadge}
-        >
-          <Text style={styles.tallyText}>Total: {total}</Text>
-        </LinearGradient>
-        
-        {categories.map(cat => {
-          const gradientColors = gradientMap[cat] || ['#999', '#999'];
-          return (
-            <LinearGradient
-              key={cat}
-              colors={gradientColors}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={styles.tallyBadge}
-            >
-              <Text style={styles.tallyText}>
-                {cat.charAt(0).toUpperCase() + cat.slice(1)}: {counts[cat] || 0}
-              </Text>
-            </LinearGradient>
-          );
-        })}
-      </View>
-    );
-  };
-
-  // Render bulk actions
-  const renderBulkActions = () => {
-    if (!showBulkActions || selectedContacts.length === 0) return null;
-    
-    return (
-      <View style={styles.bulkActionsContainer}>
-        <Text style={styles.bulkActionsTitle}>
-          {selectedContacts.length} contact{selectedContacts.length !== 1 ? 's' : ''} selected
-        </Text>
-        
-        <View style={styles.bulkActionsControls}>
-          <TouchableOpacity
-            style={[styles.bulkActionButton, { backgroundColor: colors.primaryBlue }]}
-            onPress={applyBulkRelationship}
-          >
-            <Text style={styles.bulkActionButtonText}>Change to {bulkRelationship}</Text>
-          </TouchableOpacity>
-          
-          <TouchableOpacity
-            style={[styles.bulkActionButton, { backgroundColor: colors.error }]}
-            onPress={deleteBulkContacts}
-          >
-            <Text style={styles.bulkActionButtonText}>Delete Selected</Text>
-          </TouchableOpacity>
-          
-          <TouchableOpacity
-            style={[styles.bulkActionButton, { backgroundColor: colors.textMedium }]}
-            onPress={() => {
-              setSelectedContacts([]);
-              setShowBulkActions(false);
-            }}
-          >
-            <Text style={styles.bulkActionButtonText}>Cancel</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-    );
-  };
+    fetchUserAndConnections();
+  }, []);
 
   return (
     <SafeAreaView style={styles.container}>
-      {/* Mobile Header */}
-      <MobileHeader 
-        navigation={navigation}
-        title="Connections"
-        showBackButton={false}
-        rightActions={[
-          {
-            icon: 'refresh',
-            onPress: onRefresh
-          }
-        ]}
-      />
+      <StatusBar barStyle="dark-content" backgroundColor="#fff" />
       
-      {/* Loading indicator */}
-      {loading && (
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={colors.primaryBlue} />
-          <Text style={styles.loadingText}>Loading contacts...</Text>
+      {/* Header */}
+      <View style={styles.header}>
+        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
+          <Icon name="arrow-left" size={24} color="#1E88E5" />
+        </TouchableOpacity>
+        <Text style={styles.headerTitle}>Connections</Text>
+        <View style={styles.headerActions}>
+          <TouchableOpacity
+            style={styles.headerButton}
+            onPress={() => setShowAddContactSlider(true)}
+          >
+            <Icon name="plus" size={20} color="#1E88E5" />
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.headerButton}
+            onPress={importDeviceContacts}
+          >
+            <Icon name="import" size={20} color="#1E88E5" />
+          </TouchableOpacity>
         </View>
-      )}
-      
-      {/* Content */}
-      {!loading && (
-        <View style={styles.contentContainer}>
-          {/* Action buttons */}
-          <View style={styles.actionButtonsContainer}>
-            <TouchableOpacity
-              style={styles.actionButton}
-              onPress={() => setShowAddContactSlider(true)}
-            >
-              <MaterialIcons name="person-add" size={20} color={colors.primaryBlue} />
-              <Text style={styles.actionButtonText}>Add Contact</Text>
-            </TouchableOpacity>
+      </View>
+
+      {/* Relationship Tallies */}
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tallyScrollContainer}>
+        <View style={styles.tallyContainer}>
+          {(() => {
+            const counts = {};
+            contacts.forEach(c => {
+              const rel = (c.relationship || '').toLowerCase();
+              counts[rel] = (counts[rel] || 0) + 1;
+            });
+            const categories = ['customer', 'friend', 'colleague', 'family', 'partner'];
+            const total = contacts.length;
             
-            <TouchableOpacity
-              style={styles.actionButton}
-              onPress={importContacts}
-            >
-              <MaterialIcons name="contacts" size={20} color={colors.primaryBlue} />
-              <Text style={styles.actionButtonText}>Import Contacts</Text>
-            </TouchableOpacity>
-          </View>
+            const gradientMap = {
+              family: ['#A52A2A', '#800000'],
+              partner: ['#E53935', '#C62828'],
+              friend: ['#66BB6A', '#43A047'],
+              colleague: ['#FB8C00', '#E65100'],
+              customer: ['#BA68C8', '#8E24AA'],
+            };
 
-          {/* Relationship tallies */}
-          {renderTallies()}
+            return (
+              <>
+                <LinearGradient
+                  colors={['#1565C0', '#0D47A1']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={styles.tallyBadge}
+                >
+                  <Text style={styles.tallyText}>Total: {total}</Text>
+                </LinearGradient>
+                {categories.map(cat => {
+                  const gradientColors = gradientMap[cat] || ['#999', '#999'];
+                  return (
+                    <LinearGradient
+                      key={cat}
+                      colors={gradientColors}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 1 }}
+                      style={styles.tallyBadge}
+                    >
+                      <Text style={styles.tallyText}>
+                        {cat.charAt(0).toUpperCase() + cat.slice(1)}: {counts[cat] || 0}
+                      </Text>
+                    </LinearGradient>
+                  );
+                })}
+              </>
+            );
+          })()}
+        </View>
+      </ScrollView>
+
+      {/* Bulk Actions */}
+      {showBulkActions && selectedContacts.length > 0 && (
+        <View style={styles.bulkActionsContainer}>
+          <Text style={styles.bulkActionsTitle}>
+            {selectedContacts.length} contact{selectedContacts.length !== 1 ? 's' : ''} selected
+          </Text>
           
-          {/* Bulk actions */}
-          {renderBulkActions()}
-
-          {/* Contacts list */}
-          <FlatList
-            data={contacts}
-            keyExtractor={(item) => item.id?.toString() || item.name + item.phone}
-            renderItem={({ item }) => (
-              <ContactRowCard
-                contact={item}
-                onEdit={handleEditContact}
-              />
-            )}
-            refreshControl={
-              <RefreshControl
-                refreshing={refreshing}
-                onRefresh={onRefresh}
-                colors={[colors.primaryBlue]}
-              />
-            }
-            contentContainerStyle={styles.listContainer}
-            showsVerticalScrollIndicator={false}
-          />
+          <View style={styles.bulkActionsControls}>
+            <View style={styles.bulkRelationshipContainer}>
+              <Text style={styles.bulkActionLabel}>Change to:</Text>
+              <View style={styles.pickerContainer}>
+                <Picker
+                  selectedValue={bulkRelationship}
+                  style={styles.relationshipPicker}
+                  onValueChange={(value) => setBulkRelationship(value)}
+                >
+                  {relationshipOptions.map(option => (
+                    <Picker.Item key={option} label={option} value={option} />
+                  ))}
+                </Picker>
+              </View>
+            </View>
+            
+            <View style={styles.bulkActionButtons}>
+              <TouchableOpacity
+                style={[styles.bulkActionButton, { backgroundColor: '#1E88E5' }]}
+                onPress={() => {/* Apply bulk relationship logic */}}
+              >
+                <Text style={styles.bulkActionButtonText}>Apply</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity
+                style={[styles.bulkActionButton, { backgroundColor: '#F44336' }]}
+                onPress={() => {/* Delete bulk contacts logic */}}
+              >
+                <Text style={styles.bulkActionButtonText}>Delete</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity
+                style={[styles.bulkActionButton, { backgroundColor: '#9E9E9E' }]}
+                onPress={() => {
+                  setSelectedContacts([]);
+                  setShowBulkActions(false);
+                }}
+              >
+                <Text style={styles.bulkActionButtonText}>Cancel</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
         </View>
       )}
+
+      {/* Contact List */}
+      <FlatList
+        data={contacts}
+        keyExtractor={(item) => item.id || item.name + item.phone}
+        renderItem={({ item }) => (
+          <ContactRowCard
+            contact={item}
+            onEdit={handleEditContact}
+          />
+        )}
+        contentContainerStyle={styles.listContainer}
+        showsVerticalScrollIndicator={false}
+      />
 
       {/* Add Contact Slider */}
       <AddContactSlider
         isVisible={showAddContactSlider}
         onClose={() => setShowAddContactSlider(false)}
         onSave={handleSaveContact}
+        businessId={businessId}
       />
       
       {/* Edit Contact Slider */}
@@ -597,12 +478,6 @@ const ConnectionsScreen = ({ navigation, route }) => {
         onSave={handleSaveEditedContact}
         contact={currentEditContact}
       />
-
-      {/* Mobile Bottom Navigation */}
-      <MobileBottomNavigation 
-        navigation={navigation}
-        activeRoute="Connections"
-      />
     </SafeAreaView>
   );
 };
@@ -610,141 +485,142 @@ const ConnectionsScreen = ({ navigation, route }) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.cardWhite,
+    backgroundColor: '#fff',
   },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  loadingText: {
-    marginTop: 10,
-    fontSize: 16,
-    color: colors.primaryBlue,
-  },
-  contentContainer: {
-    flex: 1,
-    paddingHorizontal: 20,
-    paddingBottom: 90, // Account for bottom navigation
-  },
-  actionButtonsContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    paddingVertical: 15,
-    backgroundColor: colors.backgroundGray,
-    borderRadius: 12,
-    marginBottom: 20,
-  },
-  actionButton: {
+  header: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: colors.cardWhite,
-    paddingVertical: 10,
-    paddingHorizontal: 15,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: colors.primaryBlue,
-    flex: 1,
-    marginHorizontal: 5,
-    justifyContent: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e0e0e0',
   },
-  actionButtonText: {
-    color: colors.primaryBlue,
-    fontWeight: '600',
-    marginLeft: 5,
-    fontSize: 14,
+  backButton: {
+    padding: 8,
+  },
+  headerTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#333',
+    flex: 1,
+    textAlign: 'center',
+  },
+  headerActions: {
+    flexDirection: 'row',
+  },
+  headerButton: {
+    padding: 8,
+    marginLeft: 8,
+  },
+  tallyScrollContainer: {
+    marginVertical: 10,
   },
   tallyContainer: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 20,
-    gap: 8,
+    paddingHorizontal: 16,
+    gap: 10,
   },
   tallyBadge: {
     paddingVertical: 8,
     paddingHorizontal: 12,
     borderRadius: 20,
-    minWidth: 80,
+    minWidth: 100,
     alignItems: 'center',
     justifyContent: 'center',
   },
   tallyText: {
-    color: colors.cardWhite,
+    color: '#fff',
     fontWeight: '600',
     fontSize: 12,
   },
   bulkActionsContainer: {
-    backgroundColor: colors.backgroundGray,
+    backgroundColor: '#f5f5f5',
     padding: 15,
-    marginBottom: 15,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: colors.borderLight,
+    marginHorizontal: 16,
+    marginVertical: 8,
+    borderRadius: 8,
   },
   bulkActionsTitle: {
     fontSize: 16,
     fontWeight: 'bold',
     marginBottom: 10,
-    color: colors.textDark,
+    color: '#333',
   },
   bulkActionsControls: {
+    gap: 10,
+  },
+  bulkRelationshipContainer: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: 10,
+  },
+  bulkActionLabel: {
+    fontSize: 14,
+    color: '#333',
+  },
+  pickerContainer: {
+    borderWidth: 1,
+    borderColor: '#ccc',
+    borderRadius: 4,
+    overflow: 'hidden',
+    flex: 1,
+  },
+  relationshipPicker: {
+    height: 40,
+  },
+  bulkActionButtons: {
+    flexDirection: 'row',
     gap: 10,
   },
   bulkActionButton: {
+    flex: 1,
     paddingVertical: 8,
     paddingHorizontal: 15,
-    borderRadius: 8,
+    borderRadius: 4,
     alignItems: 'center',
     justifyContent: 'center',
-    minWidth: 100,
   },
   bulkActionButtonText: {
-    color: colors.cardWhite,
+    color: '#fff',
     fontWeight: '600',
-    fontSize: 14,
   },
   listContainer: {
-    paddingBottom: 20,
+    paddingHorizontal: 16,
+    paddingBottom: 100,
   },
 });
 
 const contactCardStyles = StyleSheet.create({
   card: {
     flexDirection: 'row',
-    backgroundColor: colors.cardWhite,
-    borderRadius: 12,
+    backgroundColor: '#fff',
+    borderRadius: 8,
     padding: 15,
     marginBottom: 10,
     alignItems: 'center',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-    borderWidth: 1,
-    borderColor: colors.borderLight,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.2,
+    shadowRadius: 1.41,
+    elevation: 2,
   },
   selectedCard: {
     backgroundColor: '#e3f2fd',
     borderWidth: 2,
-    borderColor: colors.primaryBlue,
+    borderColor: '#1E88E5',
   },
   logoContainer: {
     width: 50,
     height: 50,
-    borderRadius: 25,
+    borderRadius: 8,
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 15,
   },
   logoText: {
-    fontSize: 18,
+    fontSize: 20,
     fontWeight: 'bold',
-    color: colors.cardWhite,
   },
   infoContainer: {
     flex: 1,
@@ -753,18 +629,17 @@ const contactCardStyles = StyleSheet.create({
   name: {
     fontSize: 16,
     fontWeight: 'bold',
-    color: colors.primaryBlue,
-    marginBottom: 2,
+    color: '#0d6efd',
   },
   phone: {
     fontSize: 14,
-    color: colors.textMedium,
-    marginBottom: 2,
+    color: '#6c757d',
   },
   existingUserLabel: {
-    color: colors.success,
+    color: '#4CAF50',
     fontSize: 12,
     fontWeight: 'bold',
+    marginTop: 4,
   },
   relationshipContainer: {
     justifyContent: 'center',
@@ -773,22 +648,23 @@ const contactCardStyles = StyleSheet.create({
   },
   relationship: {
     fontSize: 14,
-    color: colors.textDark,
+    color: '#495057',
     fontWeight: '600',
     textAlign: 'right',
   },
   actionsContainer: {
-    justifyContent: 'center',
-    alignItems: 'center',
+    marginLeft: 10,
   },
   editButton: {
-    backgroundColor: colors.primaryBlue,
-    padding: 8,
-    borderRadius: 20,
-    width: 36,
-    height: 36,
-    justifyContent: 'center',
-    alignItems: 'center',
+    backgroundColor: '#1E88E5',
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 4,
+  },
+  editButtonText: {
+    color: '#fff',
+    fontWeight: '600',
+    fontSize: 12,
   },
 });
 

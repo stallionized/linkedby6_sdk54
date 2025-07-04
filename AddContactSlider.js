@@ -10,19 +10,22 @@ import {
   TouchableWithoutFeedback,
   Dimensions,
   TextInput,
+  Platform,
   ScrollView,
   Alert,
-  Modal
+  Modal,
+  SafeAreaView,
+  StatusBar
 } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
-import { MaterialCommunityIcons } from '@expo/vector-icons';
+import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 
-const { width: screenWidth } = Dimensions.get('window');
-const SLIDER_WIDTH = Math.min(screenWidth * 0.85, 350);
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
+const SLIDER_WIDTH = SCREEN_WIDTH * 0.85;
 
 const AddContactSlider = ({ isVisible, onClose, onSave }) => {
-  const { user } = useAuth();
   const slideAnim = useRef(new Animated.Value(SLIDER_WIDTH)).current;
+  const fadeAnim = useRef(new Animated.Value(0)).current;
   const debounceTimeoutRef = useRef(null);
 
   const [name, setName] = useState('');
@@ -34,24 +37,38 @@ const AddContactSlider = ({ isVisible, onClose, onSave }) => {
   const [isExistingUser, setIsExistingUser] = useState(false);
   const [existingUserFullName, setExistingUserFullName] = useState('');
 
-  // Animation effect
+  // Animation useEffect
   useEffect(() => {
     if (isVisible) {
-      Animated.timing(slideAnim, {
-        toValue: 0,
-        duration: 300,
-        useNativeDriver: true,
-      }).start();
+      Animated.parallel([
+        Animated.timing(slideAnim, {
+          toValue: 0,
+          duration: 300,
+          useNativeDriver: true,
+        }),
+        Animated.timing(fadeAnim, {
+          toValue: 0.5,
+          duration: 300,
+          useNativeDriver: true,
+        })
+      ]).start();
     } else {
-      Animated.timing(slideAnim, {
-        toValue: SLIDER_WIDTH,
-        duration: 300,
-        useNativeDriver: true,
-      }).start();
+      Animated.parallel([
+        Animated.timing(slideAnim, {
+          toValue: SLIDER_WIDTH,
+          duration: 300,
+          useNativeDriver: true,
+        }),
+        Animated.timing(fadeAnim, {
+          toValue: 0,
+          duration: 300,
+          useNativeDriver: true,
+        })
+      ]).start();
     }
-  }, [isVisible, slideAnim]);
+  }, [isVisible, slideAnim, fadeAnim]);
 
-  // Check existing users based on phone number
+  // Phone number checking useEffect
   useEffect(() => {
     const rawPhone = phone.replace(/\D/g, '');
 
@@ -115,11 +132,155 @@ const AddContactSlider = ({ isVisible, onClose, onSave }) => {
     };
   }, [phone, isExistingUser]);
 
-  const formatPhoneInput = (text) => {
+  const validateAndSave = async () => {
+    if (!name.trim()) {
+      Alert.alert('Validation Error', 'Contact Name is required.');
+      return;
+    }
+    if (!phone.trim() || phone === '(   )    -    ') {
+      Alert.alert('Validation Error', 'Contact Phone Number is required.');
+      return;
+    }
+    if (!relationship) {
+      Alert.alert('Validation Error', 'Please select a relationship.');
+      return;
+    }
+    
+    try {
+      const session = await getSession();
+      const userId = session?.user?.id;
+      
+      if (!userId) {
+        Alert.alert('Authentication Error', 'You must be logged in to save contacts.');
+        return;
+      }
+      
+      // Get user's phone number from profile
+      const { data: userProfile, error: profileError } = await supabase
+        .from('user_profiles')
+        .select('user_phone_number')
+        .eq('user_id', userId)
+        .single();
+
+      if (profileError) {
+        console.error('Error fetching user profile:', profileError);
+        Alert.alert('Error', 'Failed to retrieve your profile information.');
+        return;
+      }
+
+      const formattedContactPhone = phone.replace(/\D/g, '');
+
+      let contactData = {
+        user_id: userId,
+        name: isExistingUser ? existingUserFullName : name.trim(),
+        contact_phone_number: phone,
+        relationship,
+        family_relation: relationship === 'Family' && familyRelation ? familyRelation : null,
+        friend_details: relationship === 'Friend' && friendDetails ? friendDetails.trim() : null,
+        user_phone_number: userProfile?.user_phone_number || null
+      };
+
+      // Check for existing contacts
+      const { data: existingContacts, error: existingContactsError } = await supabase
+        .from('connections')
+        .select('contact_id, name')
+        .eq('user_id', userId)
+        .eq('contact_phone_number', formattedContactPhone)
+        .limit(1);
+        
+      if (existingContactsError) {
+        console.error('Error checking for existing contact:', existingContactsError);
+      } else if (existingContacts && existingContacts.length > 0) {
+        Alert.alert(
+          'Contact Already Exists',
+          `You've already added ${existingContacts[0].name} with this phone number.`,
+          [{ text: 'OK', onPress: () => onClose && onClose() }]
+        );
+        return;
+      }
+
+      console.log('Inserting contact with data:', JSON.stringify(contactData, null, 2));
+
+      // Insert into connections table
+      const { data, error } = await supabase
+        .from('connections')
+        .insert(contactData)
+        .select();
+        
+      if (error) {
+        console.error('Error saving contact:', error);
+        
+        // Try using the RPC function as fallback
+        const { data: rpcData, error: rpcError } = await supabase.rpc('insert_connection_safely', {
+          p_user_id: userId,
+          p_name: isExistingUser ? existingUserFullName : name.trim(),
+          p_contact_phone_number: phone,
+          p_relationship: relationship,
+          p_family_relation: relationship === 'Family' && familyRelation ? familyRelation : null,
+          p_friend_details: relationship === 'Friend' && friendDetails ? friendDetails.trim() : null
+        });
+        
+        if (rpcError) {
+          console.error('RPC fallback also failed:', rpcError);
+          Alert.alert('Error', 'Failed to save contact. Please try again.');
+          return;
+        }
+        
+        console.log('Contact saved via RPC fallback');
+        
+        const contact = {
+          id: rpcData[0].contact_id,
+          name: rpcData[0].name,
+          phone: phone,
+          relationship,
+          familyRelation: relationship === 'Family' && familyRelation ? familyRelation : null,
+          friendDetails: relationship === 'Friend' && friendDetails ? friendDetails.trim() : null
+        };
+        
+        onSave && onSave(contact);
+        onClose && onClose();
+        
+        // Reset form fields
+        setName('');
+        setPhone('(   )    -    ');
+        setRelationship('');
+        setFamilyRelation('');
+        setFriendDetails('');
+        return;
+      }
+      
+      console.log('Contact saved successfully');
+      
+      // Create contact object for UI update
+      const contact = {
+        id: data[0].contact_id,
+        name: data[0].name,
+        phone: phone,
+        relationship,
+        familyRelation: relationship === 'Family' && familyRelation ? familyRelation : null,
+        friendDetails: relationship === 'Friend' && friendDetails ? friendDetails.trim() : null
+      };
+      
+      onSave && onSave(contact);
+      onClose && onClose();
+      
+      // Reset form fields
+      setName('');
+      setPhone('(   )    -    ');
+      setRelationship('');
+      setFamilyRelation('');
+      setFriendDetails('');
+    } catch (error) {
+      console.error('Error in validateAndSave:', error);
+      Alert.alert('Error', 'An unexpected error occurred. Please try again.');
+    }
+  };
+
+  const handlePhoneChange = (text) => {
     const cursorPosition = selection.start;
     const prevPhone = phone;
     
-    const specialPositions = [0, 4, 5, 9];
+    const specialPositions = [0, 4, 5, 9]; // '(', ')', ' ', '-'
     const digitSlots = [1, 2, 3, 6, 7, 8, 10, 11, 12, 13];
     
     const isBackspaceAtSpecial = 
@@ -145,7 +306,6 @@ const AddContactSlider = ({ isVisible, onClose, onSave }) => {
     }
     
     const digits = text.replace(/\D/g, '').slice(0, 10);
-    
     let masked = '(   )    -    '.split('');
     
     for (let i = 0; i < digits.length; i++) {
@@ -182,158 +342,22 @@ const AddContactSlider = ({ isVisible, onClose, onSave }) => {
     }
   };
 
-  const validateAndSave = async () => {
-    if (!name.trim()) {
-      Alert.alert('Validation Error', 'Contact Name is required.');
-      return;
-    }
-    if (!phone.trim() || phone === '(   )    -    ') {
-      Alert.alert('Validation Error', 'Contact Phone Number is required.');
-      return;
-    }
-    if (!relationship) {
-      Alert.alert('Validation Error', 'Please select a relationship.');
-      return;
-    }
-    
-    try {
-      if (!user) {
-        Alert.alert('Authentication Error', 'You must be logged in to save contacts.');
-        return;
-      }
-      
-      const userId = user.id;
-      
-      const { data: userProfile, error: profileError } = await supabase
-        .from('user_profiles')
-        .select('user_phone_number')
-        .eq('user_id', userId)
-        .single();
-
-      if (profileError) {
-        console.error('Error fetching user profile:', profileError);
-        Alert.alert('Error', 'Failed to retrieve your profile information.');
-        return;
-      }
-
-      if (!userProfile?.user_phone_number) {
-        console.warn('User profile is missing a phone number. Proceeding without it for Neo4j relationship.');
-      }
-
-      const formattedContactPhone = phone.replace(/\D/g, '');
-
-      let contactData = {
-        user_id: userId,
-        name: isExistingUser ? existingUserFullName : name.trim(),
-        contact_phone_number: phone,
-        relationship,
-        family_relation: relationship === 'Family' && familyRelation ? familyRelation : null,
-        friend_details: relationship === 'Friend' && friendDetails ? friendDetails.trim() : null,
-        user_phone_number: userProfile?.user_phone_number || null
-      };
-
-      const { data: existingContacts, error: existingContactsError } = await supabase
-        .from('connections')
-        .select('contact_id, name')
-        .eq('user_id', userId)
-        .eq('contact_phone_number', formattedContactPhone)
-        .limit(1);
-        
-      if (existingContactsError) {
-        console.error('Error checking for existing contact:', existingContactsError);
-      } else if (existingContacts && existingContacts.length > 0) {
-        Alert.alert(
-          'Contact Already Exists',
-          `You've already added ${existingContacts[0].name} with this phone number.`,
-          [
-            { text: 'OK', onPress: () => onClose && onClose() }
-          ]
-        );
-        return;
-      }
-      
-      console.log('Inserting contact with data:', JSON.stringify(contactData, null, 2));
-
-      const { data, error } = await supabase
-        .from('connections')
-        .insert(contactData)
-        .select();
-        
-      if (error) {
-        console.error('Error saving contact:', error);
-        
-        const { data: rpcData, error: rpcError } = await supabase.rpc('insert_connection_safely', {
-          p_user_id: userId,
-          p_name: isExistingUser ? existingUserFullName : name.trim(),
-          p_contact_phone_number: phone,
-          p_relationship: relationship,
-          p_family_relation: relationship === 'Family' && familyRelation ? familyRelation : null,
-          p_friend_details: relationship === 'Friend' && friendDetails ? friendDetails.trim() : null
-        });
-        
-        if (rpcError) {
-          console.error('RPC fallback also failed:', rpcError);
-          Alert.alert('Error', 'Failed to save contact. Please try again.');
-          return;
-        }
-        
-        console.log('Contact saved via RPC fallback');
-        
-        const contact = {
-          id: rpcData[0].contact_id,
-          name: rpcData[0].name,
-          phone: phone,
-          relationship,
-          familyRelation: relationship === 'Family' && familyRelation ? familyRelation : null,
-          friendDetails: relationship === 'Friend' && friendDetails ? friendDetails.trim() : null
-        };
-        
-        onSave && onSave(contact);
-        onClose && onClose();
-        
-        setName('');
-        setPhone('(   )    -    ');
-        setRelationship('');
-        setFamilyRelation('');
-        setFriendDetails('');
-        return;
-      }
-      
-      console.log('Contact saved successfully');
-      
-      const contact = {
-        id: data[0].contact_id,
-        name: data[0].name,
-        phone: phone,
-        relationship,
-        familyRelation: relationship === 'Family' && familyRelation ? familyRelation : null,
-        friendDetails: relationship === 'Friend' && friendDetails ? friendDetails.trim() : null
-      };
-      
-      onSave && onSave(contact);
-      onClose && onClose();
-      
-      setName('');
-      setPhone('(   )    -    ');
-      setRelationship('');
-      setFamilyRelation('');
-      setFriendDetails('');
-    } catch (error) {
-      console.error('Error in validateAndSave:', error);
-      Alert.alert('Error', 'An unexpected error occurred. Please try again.');
-    }
-  };
+  if (!isVisible) {
+    return null;
+  }
 
   return (
     <Modal
       visible={isVisible}
-      animationType="none"
       transparent={true}
+      animationType="none"
       onRequestClose={onClose}
     >
-      <View style={styles.container}>
+      <SafeAreaView style={styles.container}>
+        <StatusBar barStyle="light-content" backgroundColor="rgba(0,0,0,0.5)" />
+        
         <TouchableWithoutFeedback onPress={onClose}>
-          <View style={styles.overlay} />
+          <Animated.View style={[styles.overlay, { opacity: fadeAnim }]} />
         </TouchableWithoutFeedback>
 
         <Animated.View
@@ -348,11 +372,11 @@ const AddContactSlider = ({ isVisible, onClose, onSave }) => {
           <View style={styles.header}>
             <Text style={styles.headerText}>Add Contact</Text>
             <TouchableOpacity onPress={onClose} style={styles.closeButton}>
-              <MaterialCommunityIcons name="close" size={24} color="#333" />
+              <Icon name="close" size={24} color="#333" />
             </TouchableOpacity>
           </View>
 
-          <ScrollView contentContainerStyle={styles.content}>
+          <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
             <Text style={styles.label}>
               Contact Name {isExistingUser && <Text style={{color: '#4CAF50'}}>(Existing User)</Text>}
             </Text>
@@ -362,7 +386,6 @@ const AddContactSlider = ({ isVisible, onClose, onSave }) => {
               value={name}
               onChangeText={setName}
               editable={!isExistingUser}
-              placeholderTextColor="#999"
             />
             {isExistingUser && (
               <Text style={styles.existingUserNote}>
@@ -373,22 +396,12 @@ const AddContactSlider = ({ isVisible, onClose, onSave }) => {
             <Text style={styles.label}>Contact Phone Number</Text>
             <TextInput
               style={styles.input}
-              placeholder=""
+              placeholder="(   )    -    "
               value={phone}
-              onChangeText={formatPhoneInput}
-              onFocus={() => {
-                const digits = phone.replace(/\D/g, '');
-                const digitSlots = [1, 2, 3, 6, 7, 8, 10, 11, 12, 13];
-                
-                if (digits.length < digitSlots.length) {
-                  setSelection({ start: digitSlots[digits.length], end: digitSlots[digits.length] });
-                } else {
-                  setSelection({ start: 1, end: 1 });
-                }
-              }}
+              onChangeText={handlePhoneChange}
               selection={selection}
               keyboardType="phone-pad"
-              placeholderTextColor="#999"
+              returnKeyType="next"
             />
 
             <Text style={styles.label}>Relationship</Text>
@@ -447,7 +460,8 @@ const AddContactSlider = ({ isVisible, onClose, onSave }) => {
                     if (text.length <= 50) setFriendDetails(text);
                   }}
                   maxLength={50}
-                  placeholderTextColor="#999"
+                  multiline={true}
+                  numberOfLines={2}
                 />
               </>
             )}
@@ -457,7 +471,7 @@ const AddContactSlider = ({ isVisible, onClose, onSave }) => {
             </TouchableOpacity>
           </ScrollView>
         </Animated.View>
-      </View>
+      </SafeAreaView>
     </Modal>
   );
 };
@@ -465,11 +479,10 @@ const AddContactSlider = ({ isVisible, onClose, onSave }) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    justifyContent: 'flex-end',
   },
   overlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    backgroundColor: '#000',
   },
   slider: {
     position: 'absolute',
@@ -488,9 +501,9 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     padding: 16,
-    paddingTop: 50,
     borderBottomWidth: 1,
     borderBottomColor: '#e0e0e0',
+    paddingTop: Platform.OS === 'ios' ? 50 : 16,
   },
   headerText: {
     fontSize: 18,
@@ -502,28 +515,29 @@ const styles = StyleSheet.create({
   },
   content: {
     padding: 16,
-    paddingBottom: 50,
+    paddingBottom: 100,
   },
   label: {
     fontSize: 14,
     color: '#333',
     marginBottom: 4,
     marginTop: 12,
+    fontWeight: '500',
   },
   input: {
     borderWidth: 1,
     borderColor: '#ccc',
-    borderRadius: 4,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    fontSize: 14,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    fontSize: 16,
     color: '#333',
     backgroundColor: '#fff',
   },
   pickerContainer: {
     borderWidth: 1,
     borderColor: '#ccc',
-    borderRadius: 4,
+    borderRadius: 8,
     overflow: 'hidden',
     marginTop: 4,
     backgroundColor: '#fff',
@@ -534,10 +548,15 @@ const styles = StyleSheet.create({
   },
   saveButton: {
     backgroundColor: '#1E88E5',
-    paddingVertical: 12,
-    borderRadius: 4,
-    marginTop: 20,
+    paddingVertical: 15,
+    borderRadius: 8,
+    marginTop: 30,
     alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
   },
   saveButtonText: {
     color: '#fff',
