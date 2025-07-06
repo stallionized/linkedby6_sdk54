@@ -80,8 +80,22 @@ function AppNavigator() {
         name="Connections" 
         component={ConnectionsScreen}
         options={{
-          gestureEnabled: true,
+          gestureEnabled: false,
           title: 'Connections', // For accessibility
+          cardStyleInterpolator: ({ current, layouts }) => {
+            return {
+              cardStyle: {
+                transform: [
+                  {
+                    translateX: current.progress.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [0, 0],
+                    }),
+                  },
+                ],
+              },
+            };
+          },
         }}
       />
       <Stack.Screen 

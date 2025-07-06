@@ -12,10 +12,10 @@ import {
   Modal, 
   Image, 
   ScrollView, 
-  Alert,
-  SafeAreaView,
-  StatusBar
+  Alert
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { StatusBar } from 'expo-status-bar';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Picker } from '@react-native-picker/picker';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
@@ -23,6 +23,8 @@ import * as Contacts from 'expo-contacts';
 // import { generateQRCode } from './utils/qrCodeUtils'; // You'll need to create this utility
 import AddContactSlider from './AddContactSlider';
 import EditContactSlider from './EditContactSlider';
+import MobileHeader from './MobileHeader';
+import MobileBottomNavigation from './MobileBottomNavigation';
 
 const relationshipOptions = ['Customer', 'Friend', 'Colleague', 'Family', 'Partner'];
 
@@ -317,148 +319,138 @@ const ConnectionsScreen = ({ navigation, route }) => {
   }, []);
 
   return (
-    <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="dark-content" backgroundColor="#fff" />
-      
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-          <Icon name="arrow-left" size={24} color="#1E88E5" />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Connections</Text>
-        <View style={styles.headerActions}>
-          <TouchableOpacity
-            style={styles.headerButton}
-            onPress={() => setShowAddContactSlider(true)}
-          >
-            <Icon name="plus" size={20} color="#1E88E5" />
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.headerButton}
-            onPress={importDeviceContacts}
-          >
-            <Icon name="import" size={20} color="#1E88E5" />
-          </TouchableOpacity>
-        </View>
-      </View>
-
-      {/* Relationship Tallies */}
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tallyScrollContainer}>
-        <View style={styles.tallyContainer}>
-          {(() => {
-            const counts = {};
-            contacts.forEach(c => {
-              const rel = (c.relationship || '').toLowerCase();
-              counts[rel] = (counts[rel] || 0) + 1;
-            });
-            const categories = ['customer', 'friend', 'colleague', 'family', 'partner'];
-            const total = contacts.length;
-            
-            const gradientMap = {
-              family: ['#A52A2A', '#800000'],
-              partner: ['#E53935', '#C62828'],
-              friend: ['#66BB6A', '#43A047'],
-              colleague: ['#FB8C00', '#E65100'],
-              customer: ['#BA68C8', '#8E24AA'],
-            };
-
-            return (
-              <>
-                <LinearGradient
-                  colors={['#1565C0', '#0D47A1']}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 1 }}
-                  style={styles.tallyBadge}
-                >
-                  <Text style={styles.tallyText}>Total: {total}</Text>
-                </LinearGradient>
-                {categories.map(cat => {
-                  const gradientColors = gradientMap[cat] || ['#999', '#999'];
-                  return (
-                    <LinearGradient
-                      key={cat}
-                      colors={gradientColors}
-                      start={{ x: 0, y: 0 }}
-                      end={{ x: 1, y: 1 }}
-                      style={styles.tallyBadge}
-                    >
-                      <Text style={styles.tallyText}>
-                        {cat.charAt(0).toUpperCase() + cat.slice(1)}: {counts[cat] || 0}
-                      </Text>
-                    </LinearGradient>
-                  );
-                })}
-              </>
-            );
-          })()}
-        </View>
-      </ScrollView>
-
-      {/* Bulk Actions */}
-      {showBulkActions && selectedContacts.length > 0 && (
-        <View style={styles.bulkActionsContainer}>
-          <Text style={styles.bulkActionsTitle}>
-            {selectedContacts.length} contact{selectedContacts.length !== 1 ? 's' : ''} selected
-          </Text>
-          
-          <View style={styles.bulkActionsControls}>
-            <View style={styles.bulkRelationshipContainer}>
-              <Text style={styles.bulkActionLabel}>Change to:</Text>
-              <View style={styles.pickerContainer}>
-                <Picker
-                  selectedValue={bulkRelationship}
-                  style={styles.relationshipPicker}
-                  onValueChange={(value) => setBulkRelationship(value)}
-                >
-                  {relationshipOptions.map(option => (
-                    <Picker.Item key={option} label={option} value={option} />
-                  ))}
-                </Picker>
-              </View>
-            </View>
-            
-            <View style={styles.bulkActionButtons}>
-              <TouchableOpacity
-                style={[styles.bulkActionButton, { backgroundColor: '#1E88E5' }]}
-                onPress={() => {/* Apply bulk relationship logic */}}
-              >
-                <Text style={styles.bulkActionButtonText}>Apply</Text>
-              </TouchableOpacity>
-              
-              <TouchableOpacity
-                style={[styles.bulkActionButton, { backgroundColor: '#F44336' }]}
-                onPress={() => {/* Delete bulk contacts logic */}}
-              >
-                <Text style={styles.bulkActionButtonText}>Delete</Text>
-              </TouchableOpacity>
-              
-              <TouchableOpacity
-                style={[styles.bulkActionButton, { backgroundColor: '#9E9E9E' }]}
-                onPress={() => {
-                  setSelectedContacts([]);
-                  setShowBulkActions(false);
-                }}
-              >
-                <Text style={styles.bulkActionButtonText}>Cancel</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      )}
-
-      {/* Contact List */}
-      <FlatList
-        data={contacts}
-        keyExtractor={(item) => item.id || item.name + item.phone}
-        renderItem={({ item }) => (
-          <ContactRowCard
-            contact={item}
-            onEdit={handleEditContact}
-          />
-        )}
-        contentContainerStyle={styles.listContainer}
-        showsVerticalScrollIndicator={false}
+    <SafeAreaView style={styles.container} edges={['top']}>
+      <StatusBar style="dark" />
+      <MobileHeader 
+        navigation={navigation} 
+        title="Connections" 
+        showBackButton={false}
+        rightActions={[
+          { icon: 'add', onPress: () => setShowAddContactSlider(true) },
+          { icon: 'cloud-upload-outline', onPress: importDeviceContacts }
+        ]}
       />
+      <View style={styles.contentContainer}>
+        <FlatList
+          data={contacts}
+          keyExtractor={(item) => item.id || item.name + item.phone}
+          renderItem={({ item }) => (
+            <ContactRowCard
+              contact={item}
+              onEdit={handleEditContact}
+            />
+          )}
+          contentContainerStyle={styles.listContainer}
+          showsVerticalScrollIndicator={false}
+          ListHeaderComponent={
+            <>
+              {/* Relationship Tallies */}
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tallyScrollContainer}>
+                <View style={styles.tallyContainer}>
+                  {(() => {
+                    const counts = {};
+                    contacts.forEach(c => {
+                      const rel = (c.relationship || '').toLowerCase();
+                      counts[rel] = (counts[rel] || 0) + 1;
+                    });
+                    const categories = ['customer', 'friend', 'colleague', 'family', 'partner'];
+                    const total = contacts.length;
+                    
+                    const gradientMap = {
+                      family: ['#A52A2A', '#800000'],
+                      partner: ['#E53935', '#C62828'],
+                      friend: ['#66BB6A', '#43A047'],
+                      colleague: ['#FB8C00', '#E65100'],
+                      customer: ['#BA68C8', '#8E24AA'],
+                    };
+
+                    return (
+                      <>
+                        <LinearGradient
+                          colors={['#1565C0', '#0D47A1']}
+                          start={{ x: 0, y: 0 }}
+                          end={{ x: 1, y: 1 }}
+                          style={styles.tallyBadge}
+                        >
+                          <Text style={styles.tallyText}>Total: {total}</Text>
+                        </LinearGradient>
+                        {categories.map(cat => {
+                          const gradientColors = gradientMap[cat] || ['#999', '#999'];
+                          return (
+                            <LinearGradient
+                              key={cat}
+                              colors={gradientColors}
+                              start={{ x: 0, y: 0 }}
+                              end={{ x: 1, y: 1 }}
+                              style={styles.tallyBadge}
+                            >
+                              <Text style={styles.tallyText}>
+                                {cat.charAt(0).toUpperCase() + cat.slice(1)}: {counts[cat] || 0}
+                              </Text>
+                            </LinearGradient>
+                          );
+                        })}
+                      </>
+                    );
+                  })()}
+                </View>
+              </ScrollView>
+
+              {/* Bulk Actions */}
+              {showBulkActions && selectedContacts.length > 0 && (
+                <View style={styles.bulkActionsContainer}>
+                  <Text style={styles.bulkActionsTitle}>
+                    {selectedContacts.length} contact{selectedContacts.length !== 1 ? 's' : ''} selected
+                  </Text>
+                  
+                  <View style={styles.bulkActionsControls}>
+                    <View style={styles.bulkRelationshipContainer}>
+                      <Text style={styles.bulkActionLabel}>Change to:</Text>
+                      <View style={styles.pickerContainer}>
+                        <Picker
+                          selectedValue={bulkRelationship}
+                          style={styles.relationshipPicker}
+                          onValueChange={(value) => setBulkRelationship(value)}
+                        >
+                          {relationshipOptions.map(option => (
+                            <Picker.Item key={option} label={option} value={option} />
+                          ))}
+                        </Picker>
+                      </View>
+                    </View>
+                    
+                    <View style={styles.bulkActionButtons}>
+                      <TouchableOpacity
+                        style={[styles.bulkActionButton, { backgroundColor: '#1E88E5' }]}
+                        onPress={() => {/* Apply bulk relationship logic */}}
+                      >
+                        <Text style={styles.bulkActionButtonText}>Apply</Text>
+                      </TouchableOpacity>
+                      
+                      <TouchableOpacity
+                        style={[styles.bulkActionButton, { backgroundColor: '#F44336' }]}
+                        onPress={() => {/* Delete bulk contacts logic */}}
+                      >
+                        <Text style={styles.bulkActionButtonText}>Delete</Text>
+                      </TouchableOpacity>
+                      
+                      <TouchableOpacity
+                        style={[styles.bulkActionButton, { backgroundColor: '#9E9E9E' }]}
+                        onPress={() => {
+                          setSelectedContacts([]);
+                          setShowBulkActions(false);
+                        }}
+                      >
+                        <Text style={styles.bulkActionButtonText}>Cancel</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                </View>
+              )}
+            </>
+          }
+        />
+      </View>
 
       {/* Add Contact Slider */}
       <AddContactSlider
@@ -478,6 +470,7 @@ const ConnectionsScreen = ({ navigation, route }) => {
         onSave={handleSaveEditedContact}
         contact={currentEditContact}
       />
+      <MobileBottomNavigation navigation={navigation} activeRoute="Connections" />
     </SafeAreaView>
   );
 };
@@ -487,31 +480,8 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#fff',
   },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#e0e0e0',
-  },
-  backButton: {
-    padding: 8,
-  },
-  headerTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#333',
+  contentContainer: {
     flex: 1,
-    textAlign: 'center',
-  },
-  headerActions: {
-    flexDirection: 'row',
-  },
-  headerButton: {
-    padding: 8,
-    marginLeft: 8,
   },
   tallyScrollContainer: {
     marginVertical: 10,

@@ -12,7 +12,8 @@ import {
   Platform,
   TextInput,
   Dimensions,
-  Alert
+  Alert,
+  PanResponder
 } from 'react-native';
 import { supabase } from './supabaseClient';
 import { Ionicons } from '@expo/vector-icons';
@@ -24,8 +25,8 @@ import ReviewEntryForm from './components/ReviewEntryForm';
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 
-// Mobile-optimized constants
-const SLIDER_WIDTH = screenWidth * 0.9; // 90% of screen width for mobile
+// Mobile-optimized constants - UPDATED: Full screen width
+const SLIDER_WIDTH = screenWidth; // CHANGED: Use full screen width instead of 90%
 const HEADER_HEIGHT = 60;
 
 // Configuration for Neo4j API endpoint (for relationship tracking only)
@@ -53,6 +54,30 @@ const getColorFromName = (name) => {
 const BusinessProfileSlider = ({ isVisible, onClose, businessId, userId, viewSource = 'other' }) => {
   const slideAnim = useRef(new Animated.Value(SLIDER_WIDTH)).current;
   const fadeAnim = useRef(new Animated.Value(0)).current;
+  const pan = useRef(new Animated.ValueXY()).current;
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onMoveShouldSetPanResponder: (evt, gestureState) => {
+        return Math.abs(gestureState.dx) > Math.abs(gestureState.dy) && Math.abs(gestureState.dx) > 10;
+      },
+      onPanResponderMove: (evt, gestureState) => {
+        if (gestureState.dx > 0) {
+          pan.setValue({ x: gestureState.dx, y: 0 });
+        }
+      },
+      onPanResponderRelease: (evt, gestureState) => {
+        if (gestureState.dx > SLIDER_WIDTH * 0.4 || gestureState.vx > 0.5) {
+          onClose();
+        } else {
+          Animated.spring(pan, {
+            toValue: { x: 0, y: 0 },
+            useNativeDriver: false,
+          }).start();
+        }
+      },
+    })
+  ).current;
   
   const [loading, setLoading] = useState(true);
   const [profileData, setProfileData] = useState(null);
@@ -577,6 +602,7 @@ const BusinessProfileSlider = ({ isVisible, onClose, businessId, userId, viewSou
   // Animate the slider in and out
   useEffect(() => {
     if (isVisible) {
+      pan.setValue({ x: 0, y: 0 }); // Reset pan position when opening
       Animated.parallel([
         Animated.spring(slideAnim, {
           toValue: 0,
@@ -1419,10 +1445,11 @@ const BusinessProfileSlider = ({ isVisible, onClose, businessId, userId, viewSou
         style={[
           styles.slider, 
           { 
-            transform: [{ translateX: slideAnim }],
+            transform: [{ translateX: Animated.add(slideAnim, pan.x) }],
             width: SLIDER_WIDTH,
           }
         ]}
+        {...panResponder.panHandlers}
       >
         <View style={styles.header}>
           <Text style={styles.headerText}>
@@ -1606,20 +1633,6 @@ const BusinessProfileSlider = ({ isVisible, onClose, businessId, userId, viewSou
                   </View>
                 )}
 
-                {!reviewMode && userId && !ENABLE_TRUST_BULLSEYE && (
-                  <View style={styles.sectionCard}>
-                    <View style={styles.sectionHeader}>
-                      <Ionicons name="shield-checkmark-outline" size={22} color="#0D47A1" />
-                      <Text style={styles.sectionTitle}>Trust Network</Text>
-                    </View>
-                    <View style={styles.trustBullseyeErrorContainer}>
-                      <Text style={styles.trustBullseyeNoDataText}>Trust Bullseye Disabled</Text>
-                      <Text style={styles.trustBullseyeNoDataSubtext}>
-                        Set ENABLE_TRUST_BULLSEYE = true to enable the bullseye visualization
-                      </Text>
-                    </View>
-                  </View>
-                )}
                 
                 {reviewMode ? (
                   <ReviewEntryForm 
@@ -1674,17 +1687,16 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: 0,
     right: 0,
-    width: SLIDER_WIDTH,
+    width: SLIDER_WIDTH, // Now full screen width
     height: '100%',
     overflow: 'hidden',
-    borderLeftWidth: 1,
-    borderLeftColor: '#E5E7EB',
+    // REMOVED: borderLeftWidth and borderLeftColor for full width
     zIndex: 100,
   },
   slider: {
     position: 'absolute',
     right: 0,
-    width: SLIDER_WIDTH,
+    width: SLIDER_WIDTH, // Now full screen width
     height: '100%',
     backgroundColor: '#fff',
     shadowColor: '#000',
@@ -1692,8 +1704,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.25,
     shadowRadius: 5,
     elevation: 5,
-    borderTopLeftRadius: 12,
-    borderBottomLeftRadius: 12,
+    // REMOVED: borderTopLeftRadius and borderBottomLeftRadius for full width
     display: 'flex',
     flexDirection: 'column',
   },

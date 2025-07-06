@@ -33,7 +33,7 @@ const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 
 // Mobile-optimized constants
 const CHAT_SLIDER_WIDTH = screenWidth; // 100% of screen width
-const BUSINESS_SLIDER_WIDTH = screenWidth * 0.9; // 90% of screen width
+const BUSINESS_SLIDER_WIDTH = screenWidth; // CHANGED: 100% of screen width instead of 90%
 const BOTTOM_TAB_HEIGHT = 70;
 
 // Colors palette
@@ -1169,7 +1169,7 @@ const SearchScreen = ({ navigation, route }) => {
         </View>
       </Animated.View>
 
-      {/* Business Profile Slider */}
+      {/* Business Profile Slider - UPDATED: Full width with safe area positioning */}
       {businessSliderVisible && (
         <Animated.View style={[
           styles.businessSlider,
@@ -1178,6 +1178,7 @@ const SearchScreen = ({ navigation, route }) => {
             top: insets.top,
             bottom: insets.bottom,
             height: screenHeight - insets.top - insets.bottom,
+            width: BUSINESS_SLIDER_WIDTH, // Now 100% width
           }
         ]}>
           <BusinessProfileSlider
@@ -1617,11 +1618,12 @@ const styles = StyleSheet.create({
   sendButtonDisabled: {
     backgroundColor: colors.textLight,
   },
+  // UPDATED: Business slider for full width
   businessSlider: {
     position: 'absolute',
     top: 0,
     right: 0,
-    width: BUSINESS_SLIDER_WIDTH,
+    width: BUSINESS_SLIDER_WIDTH, // Now 100% width
     height: '100%',
     backgroundColor: colors.cardWhite,
     elevation: 15,
