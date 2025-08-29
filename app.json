@@ -1,0 +1,42 @@
+{
+  "expo": {
+    "name": "Linked By Six",
+    "slug": "linked-by-six",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "scheme": "linkedbysix",
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.linkedbysix.app",
+      "newArchEnabled": false,
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "android": {
+      "package": "com.linkedbysix.app",
+      "newArchEnabled": false
+    },
+    "plugins": [
+      "expo-secure-store",
+      [
+        "@stripe/stripe-react-native",
+        {
+          "merchantIdentifier": "merchant.com.linkedbysix.app",
+          "enableGooglePay": true
+        }
+      ],
+      "expo-font"
+    ],
+    "extra": {
+      "stripeServerUrl": "https://stripeserver-2w6d.onrender.com",
+      "eas": {
+        "projectId": "dd7711ca-c7b6-4066-bd17-27f06af90a39"
+      }
+    }
+  }
+}

@@ -69,16 +69,6 @@ function AppNavigator() {
           gestureEnabled: false,
           // Ensure proper animation for SearchScreen
           animationEnabled: true,
-          cardStyleInterpolator: ({ current }) => {
-            return {
-              cardStyle: {
-                opacity: current.progress.interpolate({
-                  inputRange: [0, 1],
-                  outputRange: [0, 1],
-                }),
-              },
-            };
-          },
         }}
       />
       
@@ -109,16 +99,6 @@ function AppNavigator() {
         options={{
           gestureEnabled: true,
           title: 'Recommended Businesses', // For accessibility
-          cardStyleInterpolator: ({ current }) => {
-            return {
-              cardStyle: {
-                opacity: current.progress.interpolate({
-                  inputRange: [0, 1],
-                  outputRange: [0, 1],
-                }),
-              },
-            };
-          },
         }}
       />
       <Stack.Screen 
@@ -127,16 +107,6 @@ function AppNavigator() {
         options={{
           gestureEnabled: true,
           title: 'Project Queue', // For accessibility
-          cardStyleInterpolator: ({ current }) => {
-            return {
-              cardStyle: {
-                opacity: current.progress.interpolate({
-                  inputRange: [0, 1],
-                  outputRange: [0, 1],
-                }),
-              },
-            };
-          },
         }}
       />
       <Stack.Screen 
@@ -167,16 +137,6 @@ function AppNavigator() {
         options={{
           gestureEnabled: true,
           title: 'Messages', // For accessibility
-          cardStyleInterpolator: ({ current }) => {
-            return {
-              cardStyle: {
-                opacity: current.progress.interpolate({
-                  inputRange: [0, 1],
-                  outputRange: [0, 1],
-                }),
-              },
-            };
-          },
         }}
       />
       <Stack.Screen 

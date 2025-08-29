@@ -173,12 +173,6 @@ const MobileBottomNavigation = ({ navigation, activeRoute }) => {
         route: 'Search',
       },
       {
-        id: 'Connections',
-        icon: 'people',
-        iconType: 'MaterialIcons',
-        route: 'Connections',
-      },
-      {
         id: 'Recommended',
         icon: 'favorite-border',
         iconType: 'MaterialIcons',
@@ -191,10 +185,11 @@ const MobileBottomNavigation = ({ navigation, activeRoute }) => {
         route: 'ProjectQueue',
       },
       {
-        id: 'Messages',
-        icon: 'message',
+        id: 'More',
+        icon: 'more-horiz',
         iconType: 'MaterialIcons',
-        route: 'Messages',
+        route: 'More',
+        isMoreButton: true,
       }
     ];
 
@@ -212,6 +207,11 @@ const MobileBottomNavigation = ({ navigation, activeRoute }) => {
   const showMoreMenu = () => {
     // Updated more options to include Settings and reorganize the menu
     const moreOptions = [
+      {
+        title: 'Connections',
+        route: 'Connections',
+        icon: 'people',
+      },
       {
         title: businessIdExists ? 'Business Profile' : 'Business Pricing',
         route: businessIdExists ? 'BusinessProfile' : 'BusinessPricing',
@@ -263,6 +263,7 @@ const MobileBottomNavigation = ({ navigation, activeRoute }) => {
   // Check if current route should show active state for More button
   const isMoreMenuActive = () => {
     const moreMenuRoutes = [
+      'Connections',
       'BusinessProfile',
       'BusinessPricing', 
       'BusinessAnalytics',
@@ -353,7 +354,7 @@ const styles = StyleSheet.create({
     minHeight: 50,
   },
   activeTabContent: {
-    backgroundColor: 'transparent',
+    backgroundColor: colors.darkBlue,
   },
   activeIndicator: {
     position: 'absolute',

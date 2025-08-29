@@ -15,7 +15,6 @@ import SettingsScreen from './SettingsScreen';
 import RecommendedBusinessesScreen from './RecommendedBusinessesScreen';
 import ProjectQueueScreen from './ProjectQueueScreen';
 import ConnectionsScreen from './ConnectionsScreen';
-import MessagesScreen from './MessagesScreen';
 import BusinessPricingScreen from './BusinessPricingScreen'; // Add BusinessPricingScreen
 import BillingScreen from './billingscreen'; // Fixed import path (matches your file name)
 import Toast from 'react-native-toast-message';
@@ -69,16 +68,6 @@ function AppNavigator() {
           gestureEnabled: false,
           // Ensure proper animation for SearchScreen
           animationEnabled: true,
-          cardStyleInterpolator: ({ current }) => {
-            return {
-              cardStyle: {
-                opacity: current.progress.interpolate({
-                  inputRange: [0, 1],
-                  outputRange: [0, 1],
-                }),
-              },
-            };
-          },
         }}
       />
       
@@ -109,16 +98,6 @@ function AppNavigator() {
         options={{
           gestureEnabled: true,
           title: 'Recommended Businesses', // For accessibility
-          cardStyleInterpolator: ({ current }) => {
-            return {
-              cardStyle: {
-                opacity: current.progress.interpolate({
-                  inputRange: [0, 1],
-                  outputRange: [0, 1],
-                }),
-              },
-            };
-          },
         }}
       />
       <Stack.Screen 
@@ -127,16 +106,6 @@ function AppNavigator() {
         options={{
           gestureEnabled: true,
           title: 'Project Queue', // For accessibility
-          cardStyleInterpolator: ({ current }) => {
-            return {
-              cardStyle: {
-                opacity: current.progress.interpolate({
-                  inputRange: [0, 1],
-                  outputRange: [0, 1],
-                }),
-              },
-            };
-          },
         }}
       />
       <Stack.Screen 
@@ -156,24 +125,6 @@ function AppNavigator() {
                     }),
                   },
                 ],
-              },
-            };
-          },
-        }}
-      />
-      <Stack.Screen 
-        name="Messages" 
-        component={MessagesScreen}
-        options={{
-          gestureEnabled: true,
-          title: 'Messages', // For accessibility
-          cardStyleInterpolator: ({ current }) => {
-            return {
-              cardStyle: {
-                opacity: current.progress.interpolate({
-                  inputRange: [0, 1],
-                  outputRange: [0, 1],
-                }),
               },
             };
           },

@@ -1,5 +1,8 @@
-import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import React, { useState, useRef } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Dimensions } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+
+const { width: screenWidth } = Dimensions.get('window');
 
 // Helper function to get a consistent ID for a node
 const getNodeId = (node) => {
@@ -19,6 +22,10 @@ const ConnectionGraphDisplay = ({
   currentUserPhoneNumber,
   compact = false 
 }) => {
+  const [showScrollArrows, setShowScrollArrows] = useState(false);
+  const [canScrollLeft, setCanScrollLeft] = useState(false);
+  const [canScrollRight, setCanScrollRight] = useState(false);
+  const scrollViewRef = useRef(null);
   // Log the raw pathData for debugging
   console.log("Raw Neo4j pathData received:", JSON.stringify(pathData, null, 2));
   
@@ -260,75 +267,196 @@ const ConnectionGraphDisplay = ({
   
   console.log("Final node order:", orderedNodes.map(node => node.name));
 
+  // Handle scroll events to update arrow visibility
+  const handleScroll = (event) => {
+    const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
+    const scrollX = contentOffset.x;
+    const maxScrollX = contentSize.width - layoutMeasurement.width;
+    
+    setCanScrollLeft(scrollX > 5);
+    setCanScrollRight(scrollX < maxScrollX - 5);
+  };
+
+  // Handle content size change to determine if scrolling is needed
+  const handleContentSizeChange = (contentWidth, contentHeight) => {
+    const containerWidth = screenWidth - 32; // Account for padding
+    const needsScrolling = contentWidth > containerWidth;
+    setShowScrollArrows(needsScrolling);
+    setCanScrollRight(needsScrolling);
+  };
+
+  // Scroll to left
+  const scrollLeft = () => {
+    if (scrollViewRef.current) {
+      scrollViewRef.current.scrollTo({ x: 0, animated: true });
+    }
+  };
+
+  // Scroll to right
+  const scrollRight = () => {
+    if (scrollViewRef.current) {
+      scrollViewRef.current.scrollToEnd({ animated: true });
+    }
+  };
+
+  // Toggle scroll arrows visibility
+  const toggleScrollArrows = () => {
+    if (showScrollArrows) {
+      setShowScrollArrows(!showScrollArrows);
+    }
+  };
+
   // Render mobile-optimized connection graph
   return (
-    <View style={[styles.container, compact && styles.compactContainer]}>
-      <View style={styles.pathContainer}>
-        {orderedNodes.map((node, index) => (
-          <React.Fragment key={`node-${index}`}>
-            {/* Node */}
-            <View style={styles.nodeContainer}>
-              <View style={[
-                styles.node,
-                node.type === 'Business' && styles.businessNode,
-                compact && styles.compactNode
-              ]} />
-              
-              {/* Node label */}
-              <View style={[styles.labelContainer, compact && styles.compactLabelContainer]}>
-                <Text style={[
-                  styles.nodeLabel,
-                  compact && styles.compactNodeLabel
-                ]} numberOfLines={compact ? 1 : 2}>
-                  {node.name}
-                </Text>
+    <TouchableOpacity 
+      style={[styles.container, compact && styles.compactContainer]}
+      onPress={toggleScrollArrows}
+      activeOpacity={showScrollArrows ? 0.7 : 1}
+    >
+      {/* Scroll arrows */}
+      {showScrollArrows && (
+        <View style={styles.scrollArrowsContainer}>
+          <TouchableOpacity
+            style={[styles.scrollArrow, styles.leftArrow, !canScrollLeft && styles.disabledArrow]}
+            onPress={scrollLeft}
+            disabled={!canScrollLeft}
+          >
+            <Ionicons name="chevron-back" size={16} color={canScrollLeft ? '#1E88E5' : '#ccc'} />
+          </TouchableOpacity>
+          
+          <TouchableOpacity
+            style={[styles.scrollArrow, styles.rightArrow, !canScrollRight && styles.disabledArrow]}
+            onPress={scrollRight}
+            disabled={!canScrollRight}
+          >
+            <Ionicons name="chevron-forward" size={16} color={canScrollRight ? '#1E88E5' : '#ccc'} />
+          </TouchableOpacity>
+        </View>
+      )}
+      
+      <ScrollView
+        ref={scrollViewRef}
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.scrollContent}
+        onScroll={handleScroll}
+        onContentSizeChange={handleContentSizeChange}
+        scrollEventThrottle={16}
+        style={styles.scrollView}
+      >
+        <View style={styles.pathContainer}>
+          {orderedNodes.map((node, index) => (
+            <React.Fragment key={`node-${index}`}>
+              {/* Node */}
+              <View style={styles.nodeContainer}>
+                <View style={[
+                  styles.node,
+                  node.type === 'Business' && styles.businessNode,
+                  compact && styles.compactNode
+                ]} />
                 
-                {!compact && node.phone && (
-                  <Text style={styles.phoneLabel} numberOfLines={1}>
-                    {node.phone}
+                {/* Node label - Now shows full name */}
+                <View style={[styles.labelContainer, compact && styles.compactLabelContainer]}>
+                  <Text style={[
+                    styles.nodeLabel,
+                    compact && styles.compactNodeLabel
+                  ]}>
+                    {node.name}
                   </Text>
-                )}
+                  
+                  {!compact && node.phone && (
+                    <Text style={styles.phoneLabel}>
+                      {node.phone}
+                    </Text>
+                  )}
+                </View>
               </View>
-            </View>
-            
-            {/* Connection line */}
-            {index < orderedNodes.length - 1 && (
-              <View style={[
-                styles.connectionLine,
-                compact && styles.compactConnectionLine
-              ]} />
-            )}
-          </React.Fragment>
-        ))}
-      </View>
+              
+              {/* Connection line */}
+              {index < orderedNodes.length - 1 && (
+                <View style={[
+                  styles.connectionLine,
+                  compact && styles.compactConnectionLine
+                ]} />
+              )}
+            </React.Fragment>
+          ))}
+        </View>
+      </ScrollView>
       
       {/* Degrees indicator */}
       <View style={styles.degreesContainer}>
         <Text style={[styles.degreesText, compact && styles.compactDegreesText]}>
           {degrees} degree{degrees !== 1 ? 's' : ''} of connection
         </Text>
+        {showScrollArrows && (
+          <Text style={styles.scrollHintText}>
+            Tap arrows to scroll • Tap here to hide arrows
+          </Text>
+        )}
       </View>
-    </View>
+    </TouchableOpacity>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
     alignItems: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 8,
+    paddingVertical: 6,
+    paddingHorizontal: 4,
+    position: 'relative',
+    maxHeight: 60, // Limit total height
   },
   compactContainer: {
-    paddingVertical: 8,
+    paddingVertical: 4,
+    paddingHorizontal: 2,
+    maxHeight: 50,
+  },
+  scrollView: {
+    maxWidth: '100%',
+    maxHeight: 40,
+  },
+  scrollContent: {
     paddingHorizontal: 4,
+    alignItems: 'center',
+  },
+  scrollArrowsContainer: {
+    position: 'absolute',
+    top: 2,
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingHorizontal: 2,
+    zIndex: 10,
+  },
+  scrollArrow: {
+    backgroundColor: 'rgba(255, 255, 255, 0.9)',
+    borderRadius: 8,
+    padding: 2,
+    elevation: 1,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 1,
+  },
+  leftArrow: {
+    marginLeft: 2,
+  },
+  rightArrow: {
+    marginRight: 2,
+  },
+  disabledArrow: {
+    backgroundColor: 'rgba(255, 255, 255, 0.5)',
   },
   noConnectionContainer: {
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 16,
+    paddingVertical: 8,
+    maxHeight: 40,
   },
   noConnectionText: {
-    fontSize: 12,
+    fontSize: 10,
     color: '#666',
     fontStyle: 'italic',
     textAlign: 'center',
@@ -336,83 +464,90 @@ const styles = StyleSheet.create({
   pathContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    flexWrap: 'wrap',
-    marginBottom: 8,
+    justifyContent: 'flex-start',
+    height: 30,
   },
   nodeContainer: {
     alignItems: 'center',
-    marginHorizontal: 4,
+    marginHorizontal: 2,
+    width: 50,
   },
   node: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
     backgroundColor: '#1E88E5',
   },
   businessNode: {
     backgroundColor: '#FF5722', // Orange for business
   },
   compactNode: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
+    width: 6,
+    height: 6,
+    borderRadius: 3,
   },
   labelContainer: {
     alignItems: 'center',
-    marginTop: 4,
-    maxWidth: 80,
-    minHeight: 32,
+    marginTop: 2,
+    width: 50,
+    height: 20,
   },
   compactLabelContainer: {
-    maxWidth: 60,
-    minHeight: 20,
-    marginTop: 2,
+    width: 45,
+    height: 18,
+    marginTop: 1,
   },
   nodeLabel: {
-    fontSize: 10,
+    fontSize: 8,
     fontWeight: '600',
     color: '#263238',
     textAlign: 'center',
-    lineHeight: 12,
+    lineHeight: 9,
   },
   compactNodeLabel: {
-    fontSize: 9,
-    lineHeight: 11,
+    fontSize: 7,
+    lineHeight: 8,
   },
   phoneLabel: {
-    fontSize: 8,
+    fontSize: 6,
     color: '#546E7A',
     textAlign: 'center',
-    marginTop: 2,
+    marginTop: 1,
   },
   connectionLine: {
-    height: 2,
+    height: 1,
     backgroundColor: '#1E88E5',
-    minWidth: 20,
-    maxWidth: 30,
-    flex: 1,
-    marginHorizontal: 2,
+    width: 15,
+    marginHorizontal: 1,
   },
   compactConnectionLine: {
     height: 1,
-    minWidth: 15,
-    maxWidth: 20,
+    width: 12,
   },
   degreesContainer: {
     backgroundColor: 'rgba(30, 136, 229, 0.1)',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 8,
+    alignItems: 'center',
+    marginTop: 2,
+    maxHeight: 20,
   },
   degreesText: {
-    fontSize: 10,
+    fontSize: 8,
     color: '#1E88E5',
     fontWeight: '600',
     textAlign: 'center',
   },
   compactDegreesText: {
-    fontSize: 9,
+    fontSize: 7,
+  },
+  scrollHintText: {
+    fontSize: 6,
+    color: '#546E7A',
+    textAlign: 'center',
+    marginTop: 1,
+    fontStyle: 'italic',
   },
 });
 

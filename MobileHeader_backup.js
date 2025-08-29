@@ -170,17 +170,13 @@ const MobileHeader = ({
             </TouchableOpacity>
           ))}
 
-          {/* Three Dots Menu (replacing Profile button) */}
+          {/* User Profile/Settings */}
           {user ? (
             <TouchableOpacity
-              style={styles.iconButton}
+              style={styles.profileButton}
               onPress={handleSettingsPress}
             >
-              <MaterialIcons 
-                name="more-horiz" 
-                size={24} 
-                color={colors.primaryBlue} 
-              />
+              <Text style={styles.profileButtonText}>Profile</Text>
             </TouchableOpacity>
           ) : (
             <TouchableOpacity

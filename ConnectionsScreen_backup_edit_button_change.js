@@ -23,7 +23,6 @@ import * as Contacts from 'expo-contacts';
 // import { generateQRCode } from './utils/qrCodeUtils'; // You'll need to create this utility
 import AddContactSlider from './AddContactSlider';
 import EditContactSlider from './EditContactSlider';
-import ConnectionRecommendationsSlider from './ConnectionRecommendationsSlider';
 import MobileHeader from './MobileHeader';
 import MobileBottomNavigation from './MobileBottomNavigation';
 
@@ -49,12 +48,6 @@ const ConnectionsScreen = ({ navigation, route }) => {
   const [showQrModal, setShowQrModal] = useState(false);
   const [qrCodeData, setQrCodeData] = useState('');
 
-  // State for connection recommendations slider
-  const [showConnectionRecommendationsSlider, setShowConnectionRecommendationsSlider] = useState(false);
-  const [selectedConnectionUserId, setSelectedConnectionUserId] = useState(null);
-  const [selectedConnectionName, setSelectedConnectionName] = useState('');
-  const [connectionUserIds, setConnectionUserIds] = useState({});
-
   // Utility function to sync a contact to Neo4j
   const syncContactToNeo4j = async (contact) => {
     try {
@@ -76,7 +69,7 @@ const ConnectionsScreen = ({ navigation, route }) => {
     }
   };
 
-  const ContactRowCard = ({ contact, onEdit, onViewRecommendations }) => {
+  const ContactRowCard = ({ contact, onEdit }) => {
     const { id, name, phone, relationship, familyRelation, friendDetails, isExistingUser } = contact;
     const initial = name?.charAt(0).toUpperCase() || '?';
 
@@ -94,7 +87,6 @@ const ConnectionsScreen = ({ navigation, route }) => {
 
     const gradientColors = gradientMap[formattedRelationship] || ['#000', '#000'];
     const isSelected = selectedContacts.includes(id);
-    const hasRecommendations = connectionUserIds[id];
 
     return (
       <TouchableOpacity 
@@ -128,19 +120,11 @@ const ConnectionsScreen = ({ navigation, route }) => {
           )}
         </View>
         <View style={contactCardStyles.actionsContainer}>
-          {hasRecommendations && (
-            <TouchableOpacity 
-              style={contactCardStyles.profileButton}
-              onPress={() => onViewRecommendations(contact)}
-            >
-              <Icon name="account-outline" size={16} color="#fff" />
-            </TouchableOpacity>
-          )}
           <TouchableOpacity 
             style={contactCardStyles.editButton}
             onPress={() => onEdit(contact)}
           >
-            <Icon name="pencil" size={16} color="#fff" />
+            <Text style={contactCardStyles.editButtonText}>Edit</Text>
           </TouchableOpacity>
         </View>
       </TouchableOpacity>
@@ -177,54 +161,6 @@ const ConnectionsScreen = ({ navigation, route }) => {
 
   const handleSaveContact = (contact) => {
     setContacts(prev => [...prev, contact]);
-  };
-
-  // Function to check which connections are registered users with recommendations
-  const checkConnectionRecommendations = async (contacts) => {
-    try {
-      const connectionUserIds = {};
-      
-      for (const contact of contacts) {
-        if (!contact.phone) continue;
-        
-        // First, find if this phone number belongs to a registered user
-        const { data: userProfile, error: userError } = await supabase
-          .from('user_profiles')
-          .select('user_id, full_name')
-          .eq('user_phone_number', contact.phone)
-          .single();
-          
-        if (userError || !userProfile) continue;
-        
-        // Check if this user has any recommendations
-        const { data: recommendations, error: recError } = await supabase
-          .from('user_recommendations')
-          .select('business_id')
-          .eq('user_id', userProfile.user_id)
-          .limit(1);
-          
-        if (!recError && recommendations && recommendations.length > 0) {
-          connectionUserIds[contact.id] = {
-            userId: userProfile.user_id,
-            name: userProfile.full_name || contact.name
-          };
-        }
-      }
-      
-      setConnectionUserIds(connectionUserIds);
-    } catch (error) {
-      console.error('Error checking connection recommendations:', error);
-    }
-  };
-
-  // Function to handle viewing connection's recommendations
-  const handleViewConnectionRecommendations = (contact) => {
-    const connectionData = connectionUserIds[contact.id];
-    if (connectionData) {
-      setSelectedConnectionUserId(connectionData.userId);
-      setSelectedConnectionName(connectionData.name);
-      setShowConnectionRecommendationsSlider(true);
-    }
   };
 
   // Import contacts from device
@@ -382,13 +318,6 @@ const ConnectionsScreen = ({ navigation, route }) => {
     fetchUserAndConnections();
   }, []);
 
-  // Check for connection recommendations when contacts are loaded
-  useEffect(() => {
-    if (contacts.length > 0) {
-      checkConnectionRecommendations(contacts);
-    }
-  }, [contacts]);
-
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <StatusBar style="dark" />
@@ -409,7 +338,6 @@ const ConnectionsScreen = ({ navigation, route }) => {
             <ContactRowCard
               contact={item}
               onEdit={handleEditContact}
-              onViewRecommendations={handleViewConnectionRecommendations}
             />
           )}
           contentContainerStyle={styles.listContainer}
@@ -542,16 +470,6 @@ const ConnectionsScreen = ({ navigation, route }) => {
         onSave={handleSaveEditedContact}
         contact={currentEditContact}
       />
-
-      {/* Connection Recommendations Slider */}
-      <ConnectionRecommendationsSlider
-        isVisible={showConnectionRecommendationsSlider}
-        onClose={() => setShowConnectionRecommendationsSlider(false)}
-        connectionUserId={selectedConnectionUserId}
-        connectionName={selectedConnectionName}
-        currentUserId={userId}
-      />
-
       <MobileBottomNavigation navigation={navigation} activeRoute="Connections" />
     </SafeAreaView>
   );
@@ -713,28 +631,12 @@ const contactCardStyles = StyleSheet.create({
   },
   actionsContainer: {
     marginLeft: 10,
-    flexDirection: 'column',
-    gap: 8,
-  },
-  profileButton: {
-    backgroundColor: '#4CAF50',
-    paddingVertical: 8,
-    paddingHorizontal: 8,
-    borderRadius: 4,
-    alignItems: 'center',
-    justifyContent: 'center',
-    minWidth: 32,
-    minHeight: 32,
   },
   editButton: {
     backgroundColor: '#1E88E5',
-    paddingVertical: 8,
-    paddingHorizontal: 8,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
     borderRadius: 4,
-    alignItems: 'center',
-    justifyContent: 'center',
-    minWidth: 32,
-    minHeight: 32,
   },
   editButtonText: {
     color: '#fff',

@@ -20,11 +20,8 @@ import { Ionicons, MaterialIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { supabase } from './supabaseClient';
 import { getSession } from './Auth';
-import { useFocusEffect } from '@react-navigation/native';
 
 // Import mobile components
-import MobileHeader from './MobileHeader';
-import MobileBottomNavigation from './MobileBottomNavigation';
 import BusinessProfileSlider from './BusinessProfileSlider';
 import AddToProjectSlider from './AddToProjectSlider';
 import ConnectionGraphDisplay from './ConnectionGraphDisplay';
@@ -32,7 +29,6 @@ import ConnectionGraphDisplay from './ConnectionGraphDisplay';
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 
 // Mobile-optimized constants
-const CHAT_SLIDER_WIDTH = screenWidth * 0.85;
 const BUSINESS_SLIDER_WIDTH = screenWidth; // Full width like SearchScreen
 
 // Colors palette
@@ -285,78 +281,45 @@ const BusinessCard = ({
   );
 };
 
-// Chat Message Component
-const ChatMessage = ({ message }) => {
-  const isUser = message.isUser;
-  
-  return (
-    <View style={[
-      styles.messageContainer,
-      isUser && styles.userMessageContainer
-    ]}>
-      <View style={[
-        styles.messageBubble,
-        isUser ? styles.userMessageBubble : styles.aiMessageBubble
-      ]}>
-        <Text style={[
-          styles.messageText,
-          isUser && styles.userMessageText
-        ]}>
-          {message.text}
-        </Text>
-      </View>
-    </View>
-  );
-};
-
-const RecommendedBusinessesScreen = ({ navigation }) => {
+const ConnectionRecommendationsSlider = ({ 
+  isVisible, 
+  onClose, 
+  connectionUserId, 
+  connectionName,
+  currentUserId 
+}) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [recommendedBusinesses, setRecommendedBusinesses] = useState([]);
   const [filteredBusinesses, setFilteredBusinesses] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [currentUserId, setCurrentUserId] = useState(null);
   const [currentUserPhoneNumber, setCurrentUserPhoneNumber] = useState(null);
   const [currentUserFullName, setCurrentUserFullName] = useState('You');
   const [neo4jConfig, setNeo4jConfig] = useState(null);
   const [connectionPaths, setConnectionPaths] = useState({});
   const [loadingPaths, setLoadingPaths] = useState({});
   
-  // Chat states
-  const [chatSliderVisible, setChatSliderVisible] = useState(false);
-  const [currentMessage, setCurrentMessage] = useState('');
-  const [chatMessages, setChatMessages] = useState([
-    { 
-      id: '1', 
-      text: 'Hi! I can help you find businesses to recommend. What type of business are you looking for?', 
-      isUser: false 
-    }
-  ]);
-  
   // Business profile slider states
   const [businessSliderVisible, setBusinessSliderVisible] = useState(false);
   const [addToProjectSliderVisible, setAddToProjectSliderVisible] = useState(false);
   const [selectedBusinessId, setSelectedBusinessId] = useState(null);
   
-  // Animation ref for chat slider
-  const chatSlideAnim = useRef(new Animated.Value(CHAT_SLIDER_WIDTH)).current;
+  // Animation ref for business slider
   const businessSlideAnim = useRef(new Animated.Value(BUSINESS_SLIDER_WIDTH)).current;
 
-  // Load user data and recommendations
+  // Load connection's recommendations when component becomes visible
   useEffect(() => {
-    const loadUserData = async () => {
+    if (isVisible && connectionUserId) {
+      loadConnectionData();
+    }
+  }, [isVisible, connectionUserId]);
+
+  // Load user data for connection paths
+  useEffect(() => {
+    const loadCurrentUserData = async () => {
       try {
-        setIsLoading(true);
-        setError(null);
-        
         const session = await getSession();
-        if (!session) {
-          setError('Please log in to view your recommendations');
-          setIsLoading(false);
-          return;
-        }
-        
-        setCurrentUserId(session.user.id);
+        if (!session) return;
         
         // Fetch user profile data
         const { data: profileData, error: profileError } = await supabase
@@ -370,49 +333,25 @@ const RecommendedBusinessesScreen = ({ navigation }) => {
         } else if (profileData) {
           if (profileData.user_phone_number) {
             setCurrentUserPhoneNumber(profileData.user_phone_number);
-            console.log('✅ User phone number loaded from profile:', profileData.user_phone_number);
           } else if (session.user.phone) {
             setCurrentUserPhoneNumber(session.user.phone);
-            console.log('✅ User phone number loaded from auth:', session.user.phone);
           }
           
           if (profileData.full_name) {
             setCurrentUserFullName(profileData.full_name);
-            console.log('✅ User full name loaded:', profileData.full_name);
           } else if (session.user.user_metadata?.full_name) {
             setCurrentUserFullName(session.user.user_metadata.full_name);
           }
         }
-        
-        await fetchRecommendedBusinesses(session.user.id);
       } catch (err) {
-        console.error('Error loading user data:', err);
-        setError('Failed to load recommendations');
-      } finally {
-        setIsLoading(false);
+        console.error('Error loading current user data:', err);
       }
     };
     
-    loadUserData();
-  }, []);
-
-  // Refresh recommendations when screen is focused to ensure synchronization with SearchScreen
-  useFocusEffect(
-    React.useCallback(() => {
-      const refreshRecommendations = async () => {
-        if (currentUserId) {
-          console.log('🔄 Screen focused - refreshing recommendations to sync with SearchScreen');
-          try {
-            await fetchRecommendedBusinesses(currentUserId);
-          } catch (err) {
-            console.error('Error refreshing recommendations on focus:', err);
-          }
-        }
-      };
-      
-      refreshRecommendations();
-    }, [currentUserId])
-  );
+    if (isVisible) {
+      loadCurrentUserData();
+    }
+  }, [isVisible]);
 
   // Fetch Neo4j settings
   useEffect(() => {
@@ -434,8 +373,6 @@ const RecommendedBusinessesScreen = ({ navigation }) => {
           return;
         }
 
-        console.log('📋 Raw Neo4j settings data from Supabase:', data);
-
         if (data && data.length > 0) {
           const config = data.reduce((acc, setting) => {
             if (setting.value && setting.value.trim() !== '') {
@@ -444,8 +381,6 @@ const RecommendedBusinessesScreen = ({ navigation }) => {
             return acc;
           }, {});
           
-          console.log('🔧 Parsed Neo4j config keys:', Object.keys(config));
-          
           const missingKeys = settingKeys.filter(key => !config[key] || config[key].trim() === '');
           
           if (missingKeys.length === 0) {
@@ -453,23 +388,22 @@ const RecommendedBusinessesScreen = ({ navigation }) => {
             console.log('✅ Neo4j configuration loaded successfully');
           } else {
             console.warn('⚠️ Missing or empty Neo4j settings:', missingKeys);
-            console.warn('Some connection features will be disabled');
             setNeo4jConfig(null);
           }
         } else {
           console.warn('ℹ️ No Neo4j settings found in global_settings table');
-          console.warn('Connection path features will be disabled');
           setNeo4jConfig(null);
         }
       } catch (err) {
         console.error('💥 Exception while fetching Neo4j settings:', err);
-        console.warn('Connection features disabled due to configuration error');
         setNeo4jConfig(null);
       }
     };
     
-    fetchNeo4jSettings();
-  }, []);
+    if (isVisible) {
+      fetchNeo4jSettings();
+    }
+  }, [isVisible]);
 
   // Filter businesses when search query changes
   useEffect(() => {
@@ -490,7 +424,7 @@ const RecommendedBusinessesScreen = ({ navigation }) => {
   // Fetch connection paths when user phone number and businesses are available
   useEffect(() => {
     if (currentUserPhoneNumber && recommendedBusinesses.length > 0) {
-      console.log('🔗 Fetching connection paths for recommended businesses...');
+      console.log('🔗 Fetching connection paths for connection\'s recommended businesses...');
       recommendedBusinesses.forEach(business => {
         // Only fetch if we don't already have a connection path for this business
         if (!connectionPaths[business.business_id] && !loadingPaths[business.business_id]) {
@@ -500,10 +434,25 @@ const RecommendedBusinessesScreen = ({ navigation }) => {
     }
   }, [currentUserPhoneNumber, recommendedBusinesses]);
 
-  // Fetch recommended businesses from Supabase
-  const fetchRecommendedBusinesses = async (userId) => {
+  // Load connection's data and recommendations
+  const loadConnectionData = async () => {
     try {
-      // Get business IDs from user_recommendations
+      setIsLoading(true);
+      setError(null);
+      
+      await fetchConnectionRecommendations(connectionUserId);
+    } catch (err) {
+      console.error('Error loading connection data:', err);
+      setError('Failed to load recommendations');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Fetch connection's recommended businesses from Supabase
+  const fetchConnectionRecommendations = async (userId) => {
+    try {
+      // Get business IDs from user_recommendations for the connection
       const { data: recommendationsData, error: recommendationsError } = await supabase
         .from('user_recommendations')
         .select('business_id')
@@ -538,11 +487,11 @@ const RecommendedBusinessesScreen = ({ navigation }) => {
         
       if (businessError) throw businessError;
       
-      console.log('✅ Fetched recommended business profiles:', businessData?.length || 0, 'businesses');
+      console.log(`✅ Fetched ${connectionName}'s recommended business profiles:`, businessData?.length || 0, 'businesses');
       setRecommendedBusinesses(businessData || []);
       setFilteredBusinesses(businessData || []);
     } catch (err) {
-      console.error('Error fetching recommended businesses:', err);
+      console.error(`Error fetching ${connectionName}'s recommended businesses:`, err);
       setError('Failed to load recommended businesses');
     }
   };
@@ -611,67 +560,48 @@ const RecommendedBusinessesScreen = ({ navigation }) => {
     }
   };
 
-  // Toggle recommendation
+  // Toggle recommendation (for current user, not the connection)
   const toggleRecommendation = async (businessId) => {
     if (!currentUserId) {
       Alert.alert("Error", "You must be logged in to manage recommendations.");
       return;
     }
 
-    const isRecommended = recommendedBusinesses.some(business => business.business_id === businessId);
+    // Check if current user has this business recommended
+    const { data: existingRec, error: checkError } = await supabase
+      .from('user_recommendations')
+      .select('business_id')
+      .eq('user_id', currentUserId)
+      .eq('business_id', businessId)
+      .single();
+
+    const isRecommended = !checkError && existingRec;
     const business = recommendedBusinesses.find(b => b.business_id === businessId);
     const businessName = business?.business_name || 'this business';
     
     if (isRecommended) {
-      // Show confirmation dialog when removing recommendation
-      Alert.alert(
-        "Remove Recommendation",
-        `Are you sure you want to remove "${businessName}" from your recommendations?`,
-        [
-          {
-            text: "Cancel",
-            style: "cancel"
-          },
-          {
-            text: "Remove",
-            style: "destructive",
-            onPress: async () => {
-              try {
-                const { error } = await supabase
-                  .from('user_recommendations')
-                  .delete()
-                  .match({ user_id: currentUserId, business_id: businessId });
-                if (error) throw error;
-                
-                // Update local state
-                const updatedBusinesses = recommendedBusinesses.filter(business => business.business_id !== businessId);
-                setRecommendedBusinesses(updatedBusinesses);
-                setFilteredBusinesses(updatedBusinesses.filter(business => 
-                  business.business_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                  business.industry.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                  (business.city && business.city.toLowerCase().includes(searchQuery.toLowerCase())) ||
-                  (business.state && business.state.toLowerCase().includes(searchQuery.toLowerCase()))
-                ));
-                
-                // Show success message
-                Alert.alert("Success", `"${businessName}" has been removed from your recommendations.`);
-              } catch (error) {
-                console.error('Error removing recommendation:', error);
-                Alert.alert("Error", "Could not remove recommendation. Please try again.");
-              }
-            }
-          }
-        ]
-      );
+      // Remove from current user's recommendations
+      try {
+        const { error } = await supabase
+          .from('user_recommendations')
+          .delete()
+          .match({ user_id: currentUserId, business_id: businessId });
+        if (error) throw error;
+        
+        Alert.alert("Success", `"${businessName}" has been removed from your recommendations.`);
+      } catch (error) {
+        console.error('Error removing recommendation:', error);
+        Alert.alert("Error", "Could not remove recommendation. Please try again.");
+      }
     } else {
-      // This case shouldn't happen on this screen since all businesses are recommended,
-      // but keeping it for completeness
+      // Add to current user's recommendations
       try {
         const { error } = await supabase
           .from('user_recommendations')
           .insert([{ user_id: currentUserId, business_id: businessId }]);
         if (error) throw error;
-        // Note: We don't add to local state here since this screen only shows existing recommendations
+        
+        Alert.alert("Success", `"${businessName}" has been added to your recommendations.`);
       } catch (error) {
         console.error('Error adding recommendation:', error);
         Alert.alert("Error", "Could not add recommendation.");
@@ -722,73 +652,46 @@ const RecommendedBusinessesScreen = ({ navigation }) => {
     });
   };
 
-  // Toggle chat slider
-  const toggleChatSlider = () => {
-    const toValue = chatSliderVisible ? CHAT_SLIDER_WIDTH : 0;
-    
-    Animated.spring(chatSlideAnim, {
-      toValue,
-      useNativeDriver: false,
-      tension: 100,
-      friction: 8,
-    }).start();
-    
-    setChatSliderVisible(!chatSliderVisible);
-  };
-
-  // Send chat message
-  const handleSendMessage = () => {
-    if (!currentMessage.trim()) return;
-    
-    const newUserMessage = {
-      id: Date.now().toString(),
-      text: currentMessage.trim(),
-      isUser: true
-    };
-    
-    setChatMessages(prevMessages => [...prevMessages, newUserMessage]);
-    
-    // Simulate AI response
-    setTimeout(() => {
-      const aiResponse = {
-        id: (Date.now() + 1).toString(),
-        text: `I found some businesses related to "${currentMessage.trim()}". Would you like to add any of these to your recommendations?`,
-        isUser: false
-      };
-      setChatMessages(prevMessages => [...prevMessages, aiResponse]);
-    }, 1000);
-    
-    setCurrentMessage('');
-  };
-
   // Clear search
   const clearSearch = () => {
     setSearchQuery('');
   };
 
-  if (isLoading) {
-    return (
-      <SafeAreaView style={styles.container}>
-        <StatusBar style="light" />
-        <MobileHeader navigation={navigation} title="Recommended" />
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={colors.primaryBlue} />
-          <Text style={styles.loadingText}>Loading your recommendations...</Text>
-        </View>
-        <MobileBottomNavigation navigation={navigation} activeRoute="Recommended" />
-      </SafeAreaView>
-    );
-  }
+  // Check if current user has recommended a business
+  const isBusinessRecommendedByCurrentUser = async (businessId) => {
+    if (!currentUserId) return false;
+    
+    const { data, error } = await supabase
+      .from('user_recommendations')
+      .select('business_id')
+      .eq('user_id', currentUserId)
+      .eq('business_id', businessId)
+      .single();
+      
+    return !error && data;
+  };
+
+  if (!isVisible) return null;
 
   return (
-    <SafeAreaView style={styles.container}>
+    <View style={styles.container}>
       <StatusBar style="light" />
       
       {/* Header */}
-      <MobileHeader
-        navigation={navigation}
-        title="Who I Recommend"
-      />
+      <LinearGradient
+        colors={[colors.primaryBlue, colors.darkBlue]}
+        style={styles.header}
+      >
+        <SafeAreaView edges={['top']}>
+          <View style={styles.headerContent}>
+            <TouchableOpacity onPress={onClose} style={styles.closeButton}>
+              <Ionicons name="arrow-back" size={24} color={colors.cardWhite} />
+            </TouchableOpacity>
+            <Text style={styles.headerTitle}>{connectionName}'s Recommendations</Text>
+            <View style={styles.headerSpacer} />
+          </View>
+        </SafeAreaView>
+      </LinearGradient>
 
       {/* Main Content */}
       <KeyboardAvoidingView 
@@ -801,7 +704,7 @@ const RecommendedBusinessesScreen = ({ navigation }) => {
             <Ionicons name="search-outline" size={20} color={colors.textMedium} />
             <TextInput
               style={styles.searchInput}
-              placeholder="Search your recommendations..."
+              placeholder="Search recommendations..."
               value={searchQuery}
               onChangeText={setSearchQuery}
               placeholderTextColor={colors.textLight}
@@ -820,7 +723,12 @@ const RecommendedBusinessesScreen = ({ navigation }) => {
           contentContainerStyle={styles.resultsContent}
           showsVerticalScrollIndicator={true}
         >
-          {error ? (
+          {isLoading ? (
+            <View style={styles.loadingContainer}>
+              <ActivityIndicator size="large" color={colors.primaryBlue} />
+              <Text style={styles.loadingText}>Loading {connectionName}'s recommendations...</Text>
+            </View>
+          ) : error ? (
             <View style={styles.errorContainer}>
               <Ionicons name="alert-circle-outline" size={64} color={colors.error} />
               <Text style={styles.errorText}>{error}</Text>
@@ -829,26 +737,20 @@ const RecommendedBusinessesScreen = ({ navigation }) => {
             <View style={styles.emptyContainer}>
               <Ionicons name="heart-outline" size={64} color={colors.textLight} />
               <Text style={styles.emptyText}>
-                {searchQuery ? 'No matching recommendations found' : 'No recommendations yet'}
+                {searchQuery ? 'No matching recommendations found' : `${connectionName} hasn't recommended any businesses yet`}
               </Text>
               <Text style={styles.emptySubtext}>
                 {searchQuery 
                   ? 'Try adjusting your search terms' 
-                  : 'Find businesses you love and add them to your recommendations'
+                  : 'Check back later for recommendations'
                 }
               </Text>
-              {!searchQuery && (
-                <TouchableOpacity style={styles.findBusinessButton} onPress={toggleChatSlider}>
-                  <Ionicons name="search-outline" size={20} color={colors.cardWhite} />
-                  <Text style={styles.findBusinessButtonText}>Find Businesses</Text>
-                </TouchableOpacity>
-              )}
             </View>
           ) : (
             <>
               <Text style={styles.resultsCount}>
-                Found {filteredBusinesses.length} recommendation{filteredBusinesses.length !== 1 ? 's' : ''}
-                {searchQuery && ` for "${searchQuery}"`}
+                {connectionName} recommends {filteredBusinesses.length} business{filteredBusinesses.length !== 1 ? 'es' : ''}
+                {searchQuery && ` matching "${searchQuery}"`}
               </Text>
               
               {filteredBusinesses.map((business) => (
@@ -858,7 +760,7 @@ const RecommendedBusinessesScreen = ({ navigation }) => {
                   onPress={handleBusinessPress}
                   onBusinessLogoPress={handleBusinessLogoPress}
                   onAddToProject={handleAddToProjectClick}
-                  isRecommended={true} // All businesses in this screen are recommended
+                  isRecommended={false} // Will be determined dynamically
                   onToggleRecommendation={toggleRecommendation}
                   connectionPath={connectionPaths[business.business_id]}
                   loadingConnection={loadingPaths[business.business_id]}
@@ -869,67 +771,6 @@ const RecommendedBusinessesScreen = ({ navigation }) => {
           )}
         </ScrollView>
       </KeyboardAvoidingView>
-
-      {/* Chat Slider */}
-      <Animated.View 
-        style={[
-          styles.chatSlider,
-          { transform: [{ translateX: chatSlideAnim }] }
-        ]}
-      >
-        <LinearGradient
-          colors={[colors.primaryBlue, colors.darkBlue]}
-          style={styles.chatHeader}
-        >
-          <View style={styles.chatHeaderContent}>
-            <Text style={styles.chatTitle}>Find Businesses</Text>
-            <TouchableOpacity onPress={toggleChatSlider}>
-              <Ionicons name="close" size={24} color={colors.cardWhite} />
-            </TouchableOpacity>
-          </View>
-        </LinearGradient>
-        
-        <ScrollView
-          style={styles.chatMessages}
-          contentContainerStyle={styles.chatMessagesContent}
-          showsVerticalScrollIndicator={false}
-        >
-          {chatMessages.map((message) => (
-            <ChatMessage key={message.id} message={message} />
-          ))}
-        </ScrollView>
-        
-        <KeyboardAvoidingView 
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-          keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
-        >
-          <View style={styles.chatInputContainer}>
-            <TextInput
-              style={styles.chatTextInput}
-              placeholder="Ask about businesses..."
-              placeholderTextColor={colors.textLight}
-              value={currentMessage}
-              onChangeText={setCurrentMessage}
-              multiline
-              maxLength={500}
-            />
-            <TouchableOpacity
-              style={[
-                styles.sendButton,
-                !currentMessage.trim() && styles.sendButtonDisabled
-              ]}
-              onPress={handleSendMessage}
-              disabled={!currentMessage.trim()}
-            >
-              <Ionicons 
-                name="send" 
-                size={20} 
-                color={!currentMessage.trim() ? colors.textLight : colors.cardWhite} 
-              />
-            </TouchableOpacity>
-          </View>
-        </KeyboardAvoidingView>
-      </Animated.View>
 
       {/* Business Profile Slider */}
       {businessSliderVisible && (
@@ -945,7 +786,7 @@ const RecommendedBusinessesScreen = ({ navigation }) => {
             onClose={closeBusinessSlider}
             businessId={selectedBusinessId}
             userId={currentUserId}
-            viewSource="who_i_recommend"
+            viewSource="connection_recommendations"
           />
         </Animated.View>
       )}
@@ -957,10 +798,7 @@ const RecommendedBusinessesScreen = ({ navigation }) => {
         businessId={selectedBusinessId}
         userId={currentUserId}
       />
-
-      {/* Bottom Navigation */}
-      <MobileBottomNavigation navigation={navigation} activeRoute="Recommended" />
-    </SafeAreaView>
+    </View>
   );
 };
 
@@ -969,20 +807,31 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.backgroundGray,
   },
+  header: {
+    paddingBottom: 16,
+  },
+  headerContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingTop: 8,
+  },
+  closeButton: {
+    padding: 8,
+    marginRight: 8,
+  },
+  headerTitle: {
+    flex: 1,
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: colors.cardWhite,
+    textAlign: 'center',
+  },
+  headerSpacer: {
+    width: 40,
+  },
   content: {
     flex: 1,
-    marginBottom: 70, // Space for bottom navigation
-  },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  loadingText: {
-    marginTop: 16,
-    fontSize: 16,
-    color: colors.textMedium,
-    fontWeight: '500',
   },
   searchContainer: {
     paddingHorizontal: 16,
@@ -1012,6 +861,53 @@ const styles = StyleSheet.create({
   resultsContent: {
     padding: 16,
     paddingBottom: 32,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 80,
+  },
+  loadingText: {
+    marginTop: 16,
+    fontSize: 16,
+    color: colors.textMedium,
+    fontWeight: '500',
+  },
+  errorContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 80,
+  },
+  errorText: {
+    marginTop: 16,
+    fontSize: 16,
+    color: colors.error,
+    textAlign: 'center',
+    fontWeight: '500',
+  },
+  emptyContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 80,
+    paddingHorizontal: 32,
+  },
+  emptyText: {
+    marginTop: 24,
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: colors.textMedium,
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  emptySubtext: {
+    fontSize: 14,
+    color: colors.textLight,
+    textAlign: 'center',
+    lineHeight: 20,
+    marginBottom: 32,
   },
   resultsCount: {
     fontSize: 18,
@@ -1128,160 +1024,6 @@ const styles = StyleSheet.create({
     width: 60,
     marginRight: 8,
   },
-  errorContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingVertical: 80,
-  },
-  errorText: {
-    marginTop: 16,
-    fontSize: 16,
-    color: colors.error,
-    textAlign: 'center',
-    fontWeight: '500',
-  },
-  emptyContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingVertical: 80,
-    paddingHorizontal: 32,
-  },
-  emptyText: {
-    marginTop: 24,
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: colors.textMedium,
-    textAlign: 'center',
-    marginBottom: 8,
-  },
-  emptySubtext: {
-    fontSize: 14,
-    color: colors.textLight,
-    textAlign: 'center',
-    lineHeight: 20,
-    marginBottom: 32,
-  },
-  findBusinessButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: colors.primaryBlue,
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    borderRadius: 24,
-    elevation: 3,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-  },
-  findBusinessButtonText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: colors.cardWhite,
-    marginLeft: 8,
-  },
-  // Chat Slider Styles
-  chatSlider: {
-    position: 'absolute',
-    top: 0,
-    right: 0,
-    width: CHAT_SLIDER_WIDTH,
-    height: '100%',
-    backgroundColor: colors.cardWhite,
-    elevation: 15,
-    shadowColor: '#000',
-    shadowOffset: { width: -4, height: 0 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    zIndex: 1000,
-  },
-  chatHeader: {
-    paddingTop: Platform.OS === 'ios' ? 50 : 25,
-    paddingBottom: 16,
-    paddingHorizontal: 16,
-  },
-  chatHeaderContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  chatTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: colors.cardWhite,
-  },
-  chatMessages: {
-    flex: 1,
-    backgroundColor: colors.backgroundGray,
-  },
-  chatMessagesContent: {
-    padding: 16,
-    paddingBottom: 32,
-  },
-  messageContainer: {
-    marginBottom: 12,
-    alignItems: 'flex-start',
-  },
-  userMessageContainer: {
-    alignItems: 'flex-end',
-  },
-  messageBubble: {
-    maxWidth: '85%',
-    paddingVertical: 10,
-    paddingHorizontal: 14,
-    borderRadius: 18,
-  },
-  userMessageBubble: {
-    backgroundColor: colors.primaryBlue,
-    borderBottomRightRadius: 4,
-  },
-  aiMessageBubble: {
-    backgroundColor: colors.cardWhite,
-    borderBottomLeftRadius: 4,
-  },
-  messageText: {
-    fontSize: 15,
-    color: colors.textDark,
-    lineHeight: 22,
-  },
-  userMessageText: {
-    color: colors.cardWhite,
-  },
-  chatInputContainer: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    padding: 16,
-    backgroundColor: colors.cardWhite,
-    borderTopWidth: 1,
-    borderTopColor: colors.borderLight,
-  },
-  chatTextInput: {
-    flex: 1,
-    backgroundColor: colors.backgroundGray,
-    borderRadius: 22,
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    marginRight: 12,
-    maxHeight: 120,
-    fontSize: 15,
-    color: colors.textDark,
-    textAlignVertical: 'top',
-  },
-  sendButton: {
-    backgroundColor: colors.primaryBlue,
-    borderRadius: 22,
-    padding: 12,
-    justifyContent: 'center',
-    alignItems: 'center',
-    minWidth: 44,
-    minHeight: 44,
-  },
-  sendButtonDisabled: {
-    backgroundColor: colors.textLight,
-  },
-  // Business slider for full width
   businessSlider: {
     position: 'absolute',
     top: 0,
@@ -1298,4 +1040,4 @@ const styles = StyleSheet.create({
   },
 });
 
-export default RecommendedBusinessesScreen;
+export default ConnectionRecommendationsSlider;

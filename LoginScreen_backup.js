@@ -11,9 +11,7 @@ import {
   Platform,
   ScrollView,
   Dimensions,
-  Image,
-  Keyboard,
-  TouchableWithoutFeedback
+  Image
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { StatusBar } from 'expo-status-bar';
@@ -26,7 +24,6 @@ const LoginScreen = ({ navigation, route }) => {
   const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [keyboardVisible, setKeyboardVisible] = useState(false);
   const { signIn } = useAuth();
 
   // Check for email confirmation message from registration
@@ -39,23 +36,6 @@ const LoginScreen = ({ navigation, route }) => {
       );
     }
   }, [route?.params]);
-
-  // Handle keyboard visibility
-  useEffect(() => {
-    const keyboardDidShowListener = Keyboard.addListener(
-      'keyboardDidShow',
-      () => setKeyboardVisible(true)
-    );
-    const keyboardDidHideListener = Keyboard.addListener(
-      'keyboardDidHide',
-      () => setKeyboardVisible(false)
-    );
-
-    return () => {
-      keyboardDidShowListener?.remove();
-      keyboardDidHideListener?.remove();
-    };
-  }, []);
 
   const showAlert = (title, message) => {
     Alert.alert(title, message, [{ text: 'OK' }]);
@@ -107,33 +87,22 @@ const LoginScreen = ({ navigation, route }) => {
     showAlert('Coming Soon', 'Google login will be implemented soon');
   };
 
-  const dismissKeyboard = () => {
-    Keyboard.dismiss();
-  };
-
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
-      <TouchableWithoutFeedback onPress={dismissKeyboard}>
-        <KeyboardAvoidingView 
-          style={styles.container}
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-          keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+      <KeyboardAvoidingView 
+        style={styles.container}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      >
+        <StatusBar style="light" />
+        <LinearGradient
+          colors={['#1E88E5', '#90CAF9']}
+          style={styles.gradient}
         >
-          <StatusBar style="light" />
-          <LinearGradient
-            colors={['#1E88E5', '#90CAF9']}
-            style={styles.gradient}
-          >
-          <ScrollView 
-            contentContainerStyle={[
-              styles.scrollContainer,
-              keyboardVisible && styles.scrollContainerKeyboard
-            ]}
-            showsVerticalScrollIndicator={false}
-            keyboardShouldPersistTaps="handled"
-            bounces={false}
-            automaticallyAdjustKeyboardInsets={Platform.OS === 'ios'}
-          >
+        <ScrollView 
+          contentContainerStyle={styles.scrollContainer}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+        >
           <View style={styles.innerContainer}>
             {/* Logo */}
             <View style={styles.logoContainer}>
@@ -217,10 +186,9 @@ const LoginScreen = ({ navigation, route }) => {
               <Text style={styles.googleButtonText}>🔍 Login with Google</Text>
             </TouchableOpacity>
           </View>
-          </ScrollView>
-          </LinearGradient>
-        </KeyboardAvoidingView>
-      </TouchableWithoutFeedback>
+        </ScrollView>
+        </LinearGradient>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 };
@@ -242,10 +210,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     padding: 20,
     minHeight: '100%',
-  },
-  scrollContainerKeyboard: {
-    justifyContent: 'flex-start',
-    paddingTop: 40,
   },
   innerContainer: {
     width: '100%',

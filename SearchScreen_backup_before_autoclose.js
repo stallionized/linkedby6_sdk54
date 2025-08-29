@@ -14,15 +14,13 @@ import {
   Animated,
   Image,
   PanResponder,
-  Keyboard,
-  Easing
+  Keyboard
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons, MaterialIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { supabase } from './supabaseClient';
-import { useFocusEffect } from '@react-navigation/native';
 
 // Import your existing components (make sure these are converted to mobile)
 import MobileBottomNavigation from './MobileBottomNavigation';
@@ -477,24 +475,6 @@ const SearchScreen = ({ navigation, route }) => {
     loadUserSessionAndData();
   }, []);
 
-  // Refresh recommendations when screen is focused to sync with RecommendedBusinessesScreen
-  useFocusEffect(
-    React.useCallback(() => {
-      const refreshRecommendations = async () => {
-        if (currentUserId) {
-          console.log('🔄 SearchScreen focused - refreshing recommendations to sync with RecommendedBusinessesScreen');
-          try {
-            await fetchUserRecommendations(currentUserId);
-          } catch (err) {
-            console.error('Error refreshing recommendations on focus:', err);
-          }
-        }
-      };
-      
-      refreshRecommendations();
-    }, [currentUserId])
-  );
-
   // Fetch Neo4j settings
   useEffect(() => {
     const fetchNeo4jSettings = async () => {
@@ -763,26 +743,9 @@ const SearchScreen = ({ navigation, route }) => {
         businessCount: businessIds.length
       });
       
-      // Clean the AI response text to remove any remaining business_ids JSON
-      let cleanedAiResponseText = aiResponseText;
-      if (cleanedAiResponseText) {
-        // Remove any remaining business_ids JSON patterns
-        cleanedAiResponseText = cleanedAiResponseText
-          .replace(/\{"business_ids":\s*\[[^\]]*\]\}/g, '')
-          .replace(/\{"business_id":\s*"[^"]*"\}/g, '')
-          .replace(/business_ids":\s*\[[^\]]*\]/g, '')
-          .replace(/business_id":\s*"[^"]*"/g, '')
-          .trim();
-        
-        // If the response is empty after cleaning, provide a default message
-        if (!cleanedAiResponseText && hasBusinessIds) {
-          cleanedAiResponseText = `I found ${businessIds.length} business${businessIds.length !== 1 ? 'es' : ''} that might interest you. Check out the results below.`;
-        }
-      }
-      
       const aiMessage = { 
         _id: (Date.now() + 1).toString(), 
-        text: cleanedAiResponseText, 
+        text: aiResponseText, 
         createdAt: new Date(), 
         type: 'ai', 
         businessIds: businessIds.length > 0 ? businessIds : undefined 
@@ -794,22 +757,6 @@ const SearchScreen = ({ navigation, route }) => {
       if (businessIds.length > 0) {
         console.log('🔍 Fetching business profiles for IDs:', businessIds);
         await fetchBusinessProfiles(businessIds);
-        
-        // AUTO-CLOSE: Smoothly close chat slider when business results are found
-        if (chatSliderVisible) {
-          console.log('🔄 Auto-closing chat slider - business results found');
-          setTimeout(() => {
-            // Use smooth animated closing instead of abrupt toggle
-            Animated.timing(chatSlideAnim, {
-              toValue: -CHAT_SLIDER_WIDTH,
-              duration: 800, // Slower, more elegant animation
-              useNativeDriver: false,
-              easing: Easing.out(Easing.cubic), // Smooth easing for elegant transition
-            }).start(() => {
-              setChatSliderVisible(false);
-            });
-          }, 1000); // Longer delay to let user see the results message
-        }
       }
       
     } catch (err) {
@@ -862,51 +809,21 @@ const SearchScreen = ({ navigation, route }) => {
     }
 
     const isRecommended = recommendedBusinessIds.includes(businessId);
-    const business = businessProfiles.find(b => b.business_id === businessId);
-    const businessName = business?.business_name || 'this business';
     
     try {
       if (isRecommended) {
-        // Show confirmation dialog when removing recommendation
-        Alert.alert(
-          "Remove Recommendation",
-          `Are you sure you want to remove "${businessName}" from your recommendations?`,
-          [
-            {
-              text: "Cancel",
-              style: "cancel"
-            },
-            {
-              text: "Remove",
-              style: "destructive",
-              onPress: async () => {
-                try {
-                  const { error } = await supabase
-                    .from('user_recommendations')
-                    .delete()
-                    .match({ user_id: currentUserId, business_id: businessId });
-                  if (error) throw error;
-                  setRecommendedBusinessIds(prev => prev.filter(id => id !== businessId));
-                  
-                  // Show success message
-                  Alert.alert("Success", `"${businessName}" has been removed from your recommendations.`);
-                } catch (error) {
-                  console.error('Error removing recommendation:', error);
-                  Alert.alert("Error", "Could not remove recommendation. Please try again.");
-                }
-              }
-            }
-          ]
-        );
+        const { error } = await supabase
+          .from('user_recommendations')
+          .delete()
+          .match({ user_id: currentUserId, business_id: businessId });
+        if (error) throw error;
+        setRecommendedBusinessIds(prev => prev.filter(id => id !== businessId));
       } else {
         const { error } = await supabase
           .from('user_recommendations')
           .insert([{ user_id: currentUserId, business_id: businessId }]);
         if (error) throw error;
         setRecommendedBusinessIds(prev => [...prev, businessId]);
-        
-        // Show success message for adding recommendation
-        Alert.alert("Success", `"${businessName}" has been added to your recommendations.`);
       }
     } catch (error) {
       console.error('Error toggling recommendation:', error);
@@ -1172,6 +1089,13 @@ const SearchScreen = ({ navigation, route }) => {
       <MobileHeader
         navigation={navigation}
         title="AI Search"
+        rightActions={[
+          {
+            icon: chatSliderVisible ? "chatbubbles" : "chatbubbles-outline",
+            onPress: toggleChatSlider,
+            badge: messages.filter(m => m.type === 'ai').length
+          }
+        ]}
       />
 
       {/* Main Content */}

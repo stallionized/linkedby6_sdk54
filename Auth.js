@@ -193,3 +193,96 @@ export const signOut = async () => {
   const { error } = await supabase.auth.signOut();
   if (error) throw error;
 };
+
+// Export signUp function for registration
+export const signUp = async (phone, password, email, fullName) => {
+  try {
+    console.log('Attempting to sign up user:', email);
+    
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password,
+      phone,
+      options: {
+        data: {
+          full_name: fullName,
+          phone: phone
+        }
+      }
+    });
+    
+    if (error) {
+      console.error('Sign up error:', error);
+      throw error;
+    }
+    
+    if (data.user) {
+      console.log('Sign up successful for:', data.user.email);
+      return data.user;
+    }
+    
+    throw new Error('Sign up failed - no user returned');
+  } catch (error) {
+    console.error('Sign up error:', error);
+    throw error;
+  }
+};
+
+// Export signIn function for compatibility with other components
+export const signIn = async (email, password) => {
+  try {
+    console.log('Attempting to sign in:', email);
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
+    
+    if (error) {
+      console.error('Sign in error:', error);
+      throw error;
+    }
+    
+    if (data.user) {
+      console.log('Sign in successful for:', data.user.email);
+      return data.user;
+    }
+    
+    throw new Error('Login failed - no user returned');
+  } catch (error) {
+    console.error('Sign in error:', error);
+    throw error;
+  }
+};
+
+// Export updateUserProfile function for profile management
+export const updateUserProfile = async (userId, profileData) => {
+  try {
+    console.log('Updating user profile for:', userId);
+    
+    // First, try to insert the profile
+    const { data, error } = await supabase
+      .from('user_profiles')
+      .upsert({
+        user_id: userId,
+        full_name: profileData.full_name,
+        user_phone_number: profileData.user_phone_number,
+        profile_image_url: profileData.profile_image_url,
+        is_admin: profileData.is_admin || false,
+        role: profileData.role || 'standard_user',
+        updated_at: new Date().toISOString()
+      })
+      .select()
+      .single();
+    
+    if (error) {
+      console.error('Profile update error:', error);
+      throw error;
+    }
+    
+    console.log('Profile updated successfully:', data);
+    return data;
+  } catch (error) {
+    console.error('Update user profile error:', error);
+    throw error;
+  }
+};
