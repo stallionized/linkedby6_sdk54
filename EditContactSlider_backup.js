@@ -285,7 +285,7 @@ const EditContactSlider = ({ isVisible, onClose, onSave, contact }) => {
       // Prepare the contact data for update
       const contactData = {
         name: isExistingUser ? existingUserFullName : name.trim(),
-        contact_phone_number: phone.trim(),
+        phone: phone.trim(),
         relationship,
         family_relation: updatedFamilyRelation,
         friend_details: updatedFriendDetails,

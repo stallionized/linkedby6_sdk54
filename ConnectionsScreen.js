@@ -362,9 +362,9 @@ const ConnectionsScreen = ({ navigation, route }) => {
           console.error('Error fetching connections:', error);
         } else {
           const formattedContacts = data.map(conn => ({
-            id: conn.id,
+            id: conn.contact_id,
             name: conn.name,
-            phone: conn.phone,
+            phone: conn.contact_phone_number,
             relationship: conn.relationship,
             familyRelation: conn.family_relation,
             friendDetails: conn.friend_details
