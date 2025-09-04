@@ -79,7 +79,6 @@ const MessagesScreen = ({ navigation }) => {
 
     setLoading(true);
     try {
-      // First, get conversations without the problematic foreign key references
       let query = supabase
         .from('conversations')
         .select(`
@@ -91,7 +90,9 @@ const MessagesScreen = ({ navigation }) => {
           user_last_read_at,
           business_last_read_at,
           created_at,
-          updated_at
+          updated_at,
+          user_profiles!conversations_user_id_fkey(full_name, profile_image_url),
+          business_profiles!conversations_business_id_fkey(business_name, business_id, image_url)
         `)
         .order('last_message_at', { ascending: false, nullsFirst: false })
         .order('created_at', { ascending: false });
@@ -105,7 +106,7 @@ const MessagesScreen = ({ navigation }) => {
         query = query.eq('user_id', user.id);
       }
 
-      const { data: conversationsData, error } = await query;
+      const { data, error } = await query;
 
       if (error) {
         console.error('Error loading conversations:', error);
@@ -113,47 +114,12 @@ const MessagesScreen = ({ navigation }) => {
         return;
       }
 
-      if (!conversationsData || conversationsData.length === 0) {
-        setConversations([]);
-        return;
-      }
-
-      // Get unique user IDs and business IDs to fetch profile data
-      const userIds = [...new Set(conversationsData.map(conv => conv.user_id).filter(Boolean))];
-      const businessIds = [...new Set(conversationsData.map(conv => conv.business_id).filter(Boolean))];
-
-      // Fetch user profiles
-      const { data: userProfiles } = await supabase
-        .from('user_profiles')
-        .select('user_id, full_name, profile_image_url')
-        .in('user_id', userIds);
-
-      // Fetch business profiles
-      const { data: businessProfiles } = await supabase
-        .from('business_profiles')
-        .select('business_id, business_name, image_url')
-        .in('business_id', businessIds);
-
-      // Create lookup maps for faster access
-      const userProfileMap = {};
-      const businessProfileMap = {};
-
-      if (userProfiles) {
-        userProfiles.forEach(profile => {
-          userProfileMap[profile.user_id] = profile;
-        });
-      }
-
-      if (businessProfiles) {
-        businessProfiles.forEach(profile => {
-          businessProfileMap[profile.business_id] = profile;
-        });
-      }
-
       // Transform data for display
-      const transformedConversations = conversationsData.map(conv => {
-        const userProfile = userProfileMap[conv.user_id];
-        const businessProfile = businessProfileMap[conv.business_id];
+      const transformedConversations = data.map(conv => {
+        const isUserSender = conv.user_id === user.id;
+        const otherParty = isBusinessMode 
+          ? conv.user_profiles 
+          : conv.business_profiles;
 
         // Determine if conversation has unread messages
         const lastReadTime = isBusinessMode 
@@ -167,14 +133,14 @@ const MessagesScreen = ({ navigation }) => {
           id: conv.id,
           conversationId: conv.id,
           sender: isBusinessMode 
-            ? (userProfile?.full_name || 'Unknown User')
-            : (businessProfile?.business_name || 'Unknown Business'),
+            ? (conv.user_profiles?.full_name || 'Unknown User')
+            : (conv.business_profiles?.business_name || 'Unknown Business'),
           message: conv.last_message_text || 'No messages yet',
           timestamp: conv.last_message_at ? new Date(conv.last_message_at) : new Date(conv.created_at),
           unread: hasUnread,
           avatar: isBusinessMode 
-            ? userProfile?.profile_image_url 
-            : businessProfile?.image_url,
+            ? conv.user_profiles?.profile_image_url 
+            : conv.business_profiles?.image_url,
           otherPartyId: isBusinessMode ? conv.user_id : conv.business_id,
           isBusinessConversation: !isBusinessMode,
         };

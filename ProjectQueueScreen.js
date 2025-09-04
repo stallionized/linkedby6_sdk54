@@ -1,49 +1,56 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { 
-  StyleSheet, 
-  Text, 
-  View, 
-  TouchableOpacity, 
-  FlatList,
+import React, { useState, useRef, useEffect, useCallback } from 'react';
+import {
+  StyleSheet,
+  Text,
+  View,
+  TextInput,
+  TouchableOpacity,
+  ScrollView,
   Image,
-  Alert,
   ActivityIndicator,
-  RefreshControl,
-  Dimensions
+  Alert,
+  Dimensions,
+  KeyboardAvoidingView,
+  Platform,
+  RefreshControl
 } from 'react-native';
-import { StatusBar } from 'expo-status-bar';
-import { MaterialIcons } from '@expo/vector-icons';
-import { useFocusEffect } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import MobileBottomNavigation from './MobileBottomNavigation';
-import MobileHeader from './MobileHeader';
+import { StatusBar } from 'expo-status-bar';
+import { Ionicons, MaterialIcons } from '@expo/vector-icons';
 import { supabase } from './supabaseClient';
 import { getSession } from './Auth';
+import { useFocusEffect } from '@react-navigation/native';
+
+// Import mobile components
+import MobileHeader from './MobileHeader';
+import MobileBottomNavigation from './MobileBottomNavigation';
+import BusinessProfileSlider from './BusinessProfileSlider';
+import AddToProjectSlider from './AddToProjectSlider';
+import ConnectionGraphDisplay from './ConnectionGraphDisplay';
 import CreateProjectSlider from './CreateProjectSlider';
 
-const { width: screenWidth } = Dimensions.get('window');
+const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 
-// Define colors
+// Colors palette (matching RecommendedBusinessesScreen)
 const colors = {
-  backgroundWhite: '#FFFFFF',
-  primary: '#0D47A1',
-  primaryLight: '#1E88E5',
-  textDark: '#1F2937',
-  textMedium: '#6B7280',
-  textWhite: '#FFFFFF',
-  borderLight: '#E5E7EB',
-  inputBackground: '#FFFFFF',
-  inputBorder: '#D1D5DB',
-  cardBackground: '#F9FAFB',
+  primaryBlue: '#1E88E5',
+  lightBlue: '#90CAF9',
+  darkBlue: '#0D47A1',
+  backgroundGray: '#F5F7FA',
+  cardWhite: '#FFFFFF',
+  textDark: '#263238',
+  textMedium: '#546E7A',
+  textLight: '#90A4AE',
+  borderLight: '#E0E7FF',
   success: '#10B981',
   warning: '#F59E0B',
   error: '#EF4444',
 };
 
-// Function to generate a consistent color from a business name
+// Function to generate consistent color from business name (same as RecommendedBusinessesScreen)
 const getColorFromName = (name) => {
   const colors = [
-    '#FF5733', '#33A8FF', '#FF33A8', '#A833FF', '#33FF57', 
+    '#FF5733', '#33A8FF', '#FF33A8', '#A833FF', '#33FF57',
     '#FFD433', '#FF8333', '#3357FF', '#33FFEC', '#8CFF33'
   ];
   
@@ -51,85 +58,352 @@ const getColorFromName = (name) => {
   for (let i = 0; i < name.length; i++) {
     hash = name.charCodeAt(i) + ((hash << 5) - hash);
   }
-  
   const index = Math.abs(hash) % colors.length;
   return colors[index];
 };
 
-// LogoContainer component for business logos
-const LogoContainer = ({ business }) => {
-  const mappedBusiness = {
-    business_id: business.id,
-    business_name: business.name,
-    image_url: business.logo
+// Business Logo Component (same as RecommendedBusinessesScreen)
+const BusinessLogo = ({ business }) => {
+  const [bgColor, setBgColor] = useState(getColorFromName(business.business_name || 'Business'));
+  const [imageLoaded, setImageLoaded] = useState(false);
+  
+  // Function to extract dominant color from image
+  const extractDominantColor = async (imageUri) => {
+    try {
+      // For now, we'll use a smart color extraction based on the business name and industry
+      // This provides better color matching than random colors
+      const businessName = business.business_name?.toLowerCase() || '';
+      const industry = business.industry?.toLowerCase() || '';
+      
+      // Define color mappings for common business types
+      const colorMappings = {
+        // Automotive
+        'auto': '#1E3A8A', 'car': '#1E3A8A', 'automotive': '#1E3A8A', 'dealership': '#1E3A8A',
+        'leasing': '#0F172A', 'rental': '#374151',
+        
+        // Technology
+        'tech': '#3B82F6', 'software': '#3B82F6', 'digital': '#3B82F6', 'it': '#3B82F6',
+        
+        // Food & Restaurant
+        'restaurant': '#DC2626', 'food': '#DC2626', 'cafe': '#92400E', 'bakery': '#D97706',
+        
+        // Health & Medical
+        'medical': '#059669', 'health': '#059669', 'dental': '#059669', 'clinic': '#059669',
+        
+        // Finance
+        'bank': '#1E40AF', 'finance': '#1E40AF', 'insurance': '#1E40AF', 'investment': '#1E40AF',
+        
+        // Real Estate
+        'real estate': '#7C2D12', 'property': '#7C2D12', 'construction': '#92400E',
+        
+        // Retail
+        'retail': '#7C3AED', 'store': '#7C3AED', 'shop': '#7C3AED', 'boutique': '#7C3AED',
+        
+        // Services
+        'consulting': '#374151', 'service': '#374151', 'agency': '#374151',
+        
+        // Default colors for specific business names
+        'fast lane': '#0F172A', // Dark color for Fast Lane Leasing
+      };
+      
+      // Check for specific business name matches first
+      for (const [key, color] of Object.entries(colorMappings)) {
+        if (businessName.includes(key)) {
+          return color;
+        }
+      }
+      
+      // Check industry matches
+      for (const [key, color] of Object.entries(colorMappings)) {
+        if (industry.includes(key)) {
+          return color;
+        }
+      }
+      
+      // Fallback to original color generation but with better colors
+      const betterColors = [
+        '#1E3A8A', '#DC2626', '#059669', '#7C2D12', '#7C3AED',
+        '#0F172A', '#374151', '#92400E', '#1E40AF', '#BE185D'
+      ];
+      
+      let hash = 0;
+      const nameToHash = businessName || 'business';
+      for (let i = 0; i < nameToHash.length; i++) {
+        hash = nameToHash.charCodeAt(i) + ((hash << 5) - hash);
+      }
+      const index = Math.abs(hash) % betterColors.length;
+      return betterColors[index];
+      
+    } catch (error) {
+      console.log('Error extracting color, using fallback');
+      return getColorFromName(business.business_name || 'Business');
+    }
   };
   
-  const bgColor = mappedBusiness.image_url ? '#e9ecef' : getColorFromName(mappedBusiness.business_name || 'Business');
+  // Update background color when image loads
+  const handleImageLoad = async () => {
+    setImageLoaded(true);
+    if (business.image_url) {
+      const dominantColor = await extractDominantColor(business.image_url);
+      setBgColor(dominantColor);
+    }
+  };
+  
+  // Set initial color based on business info
+  React.useEffect(() => {
+    const setInitialColor = async () => {
+      const smartColor = await extractDominantColor(business.image_url);
+      setBgColor(smartColor);
+    };
+    setInitialColor();
+  }, [business.business_name, business.industry]);
   
   return (
-    <View style={[styles.logoContainer, { backgroundColor: bgColor }]}>
-      {mappedBusiness.image_url ? (
+    <View style={[styles.businessLogo, { backgroundColor: bgColor }]}>
+      {business.image_url ? (
         <Image 
-          source={{ uri: mappedBusiness.image_url }}
-          style={styles.logo}
-          resizeMode="contain"
+          source={{ uri: business.image_url }} 
+          style={styles.businessLogoImage}
+          onLoad={handleImageLoad}
+          onError={() => setImageLoaded(false)}
         />
       ) : (
-        <Text style={styles.logoPlaceholder}>
-          {mappedBusiness.business_name ? mappedBusiness.business_name.charAt(0).toUpperCase() : 'B'}
+        <Text style={styles.businessLogoText}>
+          {business.business_name ? business.business_name.charAt(0).toUpperCase() : 'B'}
         </Text>
       )}
     </View>
   );
 };
 
-const ProjectQueueScreen = ({ navigation, route }) => {
+// Business Card Component (same layout as RecommendedBusinessesScreen)
+const BusinessCard = ({ 
+  business, 
+  onPress, 
+  onAddToProject, 
+  onBusinessLogoPress,
+  onRemove,
+  connectionPath,
+  loadingConnection,
+  currentUserFullName,
+  showRemoveButton = false
+}) => {
+  return (
+    <TouchableOpacity style={styles.businessCard} onPress={() => onPress(business.business_id)}>
+      <View style={styles.businessCardHeader}>
+        <TouchableOpacity onPress={() => onBusinessLogoPress(business.business_id)}>
+          <BusinessLogo business={business} />
+        </TouchableOpacity>
+        
+        <View style={styles.businessCardInfo}>
+          <Text style={styles.businessName} numberOfLines={2}>{business.business_name}</Text>
+          {business.industry && (
+            <Text style={styles.businessIndustry} numberOfLines={1}>{business.industry}</Text>
+          )}
+          <View style={styles.businessLocation}>
+            <Ionicons name="location-outline" size={14} color={colors.textMedium} />
+            <Text style={styles.businessLocationText} numberOfLines={1}>
+              {business.city && business.state ? `${business.city}, ${business.state}` : 
+               business.zip_code || 'Location not specified'}
+            </Text>
+          </View>
+          
+          {/* Coverage Info */}
+          {business.coverage_type && (
+            <View style={styles.coverageInfo}>
+              <Ionicons name="business-outline" size={12} color={colors.textMedium} />
+              <Text style={styles.coverageText}>
+                {business.coverage_type.charAt(0).toUpperCase() + business.coverage_type.slice(1)}
+                {business.coverage_type === 'local' && business.coverage_radius && 
+                  ` (${business.coverage_radius}mi)`}
+              </Text>
+            </View>
+          )}
+        </View>
+        
+        <View style={styles.businessCardActions}>
+          {showRemoveButton && (
+            <TouchableOpacity
+              style={styles.actionButton}
+              onPress={() => onRemove(business.business_id)}
+            >
+              <Ionicons name="close" size={20} color={colors.error} />
+            </TouchableOpacity>
+          )}
+          <TouchableOpacity
+            style={styles.actionButton}
+            onPress={() => onAddToProject(business.business_id)}
+          >
+            <Ionicons name="add-circle-outline" size={20} color={colors.primaryBlue} />
+          </TouchableOpacity>
+        </View>
+      </View>
+      
+      {/* Six Degrees Connection Visualization */}
+      <View style={styles.connectionVisualization}>
+        {loadingConnection ? (
+          <View style={styles.connectionContainer}>
+            <ActivityIndicator size="small" color={colors.primaryBlue} />
+            <Text style={styles.connectionText}>Finding connection...</Text>
+          </View>
+        ) : connectionPath ? (
+          connectionPath.found && connectionPath.data ? (
+            <View style={styles.connectionFound}>
+              <ConnectionGraphDisplay 
+                pathData={connectionPath.raw}
+                businessName={business.business_name}
+                currentUserFullName={currentUserFullName}
+                compact={true} // Mobile compact version
+              />
+            </View>
+          ) : (
+            <View style={styles.connectionContainer}>
+              <Ionicons name="people-outline" size={16} color={colors.textMedium} />
+              <Text style={styles.connectionText}>
+                {connectionPath.message || "No connection within 6 degrees"}
+              </Text>
+            </View>
+          )
+        ) : (
+          <View style={styles.connectionContainer}>
+            <Image 
+              source={require('./assets/cropped_6_degrees_network_map.png')} 
+              style={styles.networkImage}
+              resizeMode="contain"
+            />
+            <Text style={styles.connectionText}>Connection network</Text>
+          </View>
+        )}
+      </View>
+    </TouchableOpacity>
+  );
+};
+
+const ProjectQueueScreen = ({ navigation }) => {
+  const [searchQuery, setSearchQuery] = useState('');
   const [queuedBusinesses, setQueuedBusinesses] = useState([]);
-  const [isCreateProjectSliderVisible, setIsCreateProjectSliderVisible] = useState(false);
+  const [filteredBusinesses, setFilteredBusinesses] = useState([]);
   const [projects, setProjects] = useState([]);
-  const [selectedProject, setSelectedProject] = useState(null);
-  const [isEditingProject, setIsEditingProject] = useState(false);
-  const [currentUserId, setCurrentUserId] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(null);
+  const [currentUserId, setCurrentUserId] = useState(null);
+  const [currentUserPhoneNumber, setCurrentUserPhoneNumber] = useState(null);
+  const [currentUserFullName, setCurrentUserFullName] = useState('You');
+  const [connectionPaths, setConnectionPaths] = useState({});
+  const [loadingPaths, setLoadingPaths] = useState({});
   
-  // Load user session and fetch data
-  const loadUserData = async () => {
-    try {
-      setError(null);
-      
-      const session = await getSession();
-      if (!session || !session.user) {
-        setError('User not logged in');
-        return;
-      }
-      
-      setCurrentUserId(session.user.id);
-      await fetchUserProjectBusinesses(session.user.id);
-    } catch (err) {
-      console.error('Error in loadUserData:', err);
-      setError('An error occurred while loading your data');
-    }
-  };
+  // Project management states
+  const [isCreateProjectSliderVisible, setIsCreateProjectSliderVisible] = useState(false);
+  const [selectedProject, setSelectedProject] = useState(null);
+  const [isEditingProject, setIsEditingProject] = useState(false);
+  
+  // Business profile slider states
+  const [businessSliderVisible, setBusinessSliderVisible] = useState(false);
+  const [addToProjectSliderVisible, setAddToProjectSliderVisible] = useState(false);
+  const [selectedBusinessId, setSelectedBusinessId] = useState(null);
 
-  // Fetch data on screen focus
+  // Load user data and queue
+  useEffect(() => {
+    const loadUserData = async () => {
+      try {
+        setIsLoading(true);
+        setError(null);
+        
+        const session = await getSession();
+        if (!session) {
+          setError('Please log in to view your project queue');
+          setIsLoading(false);
+          return;
+        }
+        
+        setCurrentUserId(session.user.id);
+        
+        // Fetch user profile data
+        const { data: profileData, error: profileError } = await supabase
+          .from('user_profiles')
+          .select('user_phone_number, full_name')
+          .eq('user_id', session.user.id)
+          .single();
+          
+        if (profileError && profileError.code !== 'PGRST116') {
+          console.error('❌ Error fetching user profile data:', profileError);
+        } else if (profileData) {
+          if (profileData.user_phone_number) {
+            setCurrentUserPhoneNumber(profileData.user_phone_number);
+            console.log('✅ User phone number loaded from profile:', profileData.user_phone_number);
+          } else if (session.user.phone) {
+            setCurrentUserPhoneNumber(session.user.phone);
+            console.log('✅ User phone number loaded from auth:', session.user.phone);
+          }
+          
+          if (profileData.full_name) {
+            setCurrentUserFullName(profileData.full_name);
+            console.log('✅ User full name loaded:', profileData.full_name);
+          } else if (session.user.user_metadata?.full_name) {
+            setCurrentUserFullName(session.user.user_metadata.full_name);
+          }
+        }
+        
+        await fetchUserProjectBusinesses(session.user.id);
+      } catch (err) {
+        console.error('Error loading user data:', err);
+        setError('Failed to load your project queue');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    
+    loadUserData();
+  }, []);
+
+  // Refresh queue when screen is focused
   useFocusEffect(
     useCallback(() => {
-      setLoading(true);
-      loadUserData().finally(() => setLoading(false));
-    }, [])
+      const refreshQueue = async () => {
+        if (currentUserId) {
+          console.log('🔄 Screen focused - refreshing project queue');
+          try {
+            await fetchUserProjectBusinesses(currentUserId);
+          } catch (err) {
+            console.error('Error refreshing queue on focus:', err);
+          }
+        }
+      };
+      
+      refreshQueue();
+    }, [currentUserId])
   );
 
-  // Pull to refresh handler
-  const onRefresh = useCallback(async () => {
-    setRefreshing(true);
-    if (currentUserId) {
-      await fetchUserProjectBusinesses(currentUserId);
+  // Filter businesses when search query changes
+  useEffect(() => {
+    if (!searchQuery.trim()) {
+      setFilteredBusinesses(queuedBusinesses);
+    } else {
+      const filtered = queuedBusinesses.filter(
+        business => 
+          business.business_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          business.industry.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          (business.city && business.city.toLowerCase().includes(searchQuery.toLowerCase())) ||
+          (business.state && business.state.toLowerCase().includes(searchQuery.toLowerCase()))
+      );
+      setFilteredBusinesses(filtered);
     }
-    setRefreshing(false);
-  }, [currentUserId]);
-  
+  }, [searchQuery, queuedBusinesses]);
+
+  // Fetch connection paths when user phone number and businesses are available
+  useEffect(() => {
+    if (currentUserPhoneNumber && queuedBusinesses.length > 0) {
+      console.log('🔗 Fetching connection paths for queued businesses...');
+      queuedBusinesses.forEach(business => {
+        // Only fetch if we don't already have a connection path for this business
+        if (!connectionPaths[business.business_id] && !loadingPaths[business.business_id]) {
+          fetchConnectionPath(business.business_id);
+        }
+      });
+    }
+  }, [currentUserPhoneNumber, queuedBusinesses]);
+
   // Fetch user's project businesses from Supabase
   const fetchUserProjectBusinesses = async (userId) => {
     try {
@@ -151,7 +425,11 @@ const ProjectQueueScreen = ({ navigation, route }) => {
             image_url,
             description,
             city,
-            state
+            state,
+            zip_code,
+            coverage_type,
+            coverage_details,
+            coverage_radius
           )
         `)
         .eq('user_id', userId)
@@ -192,14 +470,17 @@ const ProjectQueueScreen = ({ navigation, route }) => {
         }
         
         const business = {
-          id: item.business_profiles.business_id,
-          name: item.business_profiles.business_name || 'Unnamed Business',
+          business_id: item.business_profiles.business_id,
+          business_name: item.business_profiles.business_name || 'Unnamed Business',
           industry: item.business_profiles.industry || 'Unknown Industry',
-          logo: item.business_profiles.image_url,
-          logoBackgroundColor: item.business_profiles.image_url ? '#e9ecef' : getColorFromName(item.business_profiles.business_name || 'Business'),
+          image_url: item.business_profiles.image_url,
           description: item.business_profiles.description || '',
-          location: [item.business_profiles.city, item.business_profiles.state].filter(Boolean).join(', '),
-          rating: 4.0
+          city: item.business_profiles.city,
+          state: item.business_profiles.state,
+          zip_code: item.business_profiles.zip_code,
+          coverage_type: item.business_profiles.coverage_type,
+          coverage_details: item.business_profiles.coverage_details,
+          coverage_radius: item.business_profiles.coverage_radius
         };
         
         if (item.project_id && item.project_name) {
@@ -238,581 +519,269 @@ const ProjectQueueScreen = ({ navigation, route }) => {
     }
     
     setQueuedBusinesses(unassignedBusinesses);
+    setFilteredBusinesses(unassignedBusinesses);
     setProjects(Array.from(projectMap.values()));
   };
 
-  // Update business project assignment in Supabase
-  const updateBusinessProject = async (businessId, projectId, projectName, projectDescription) => {
-    if (!currentUserId) return;
+  // Fetch connection path
+  const fetchConnectionPath = async (businessId) => {
+    if (!currentUserPhoneNumber || !businessId) {
+      console.warn(`Cannot fetch connection path for businessId: ${businessId}. Missing user phone or business ID.`);
+      setConnectionPaths(prev => ({ 
+        ...prev, 
+        [businessId]: { found: false, message: "Connection search unavailable" } 
+      }));
+      return;
+    }
+    
+    setLoadingPaths(prev => ({ ...prev, [businessId]: true }));
     
     try {
-      const { data: existingData, error: checkError } = await supabase
-        .from('user_project_businesses')
-        .select('id')
-        .eq('user_id', currentUserId)
-        .eq('business_id', businessId);
-        
-      if (checkError) {
-        throw checkError;
+      const backendUrl = 'https://neo4j-query-service.onrender.com';
+      
+      const cypherQuery = `
+        MATCH (start:Person {phone: "${currentUserPhoneNumber}"})
+        MATCH (target:Business {business_id: "${businessId}"})
+        MATCH path = shortestPath((start)-[:FAMILY_MEMBER|FRIEND|OWNS|EMPLOYEE_OF*..6]-(target))
+        RETURN path, length(path) AS degrees
+      `;
+      
+      console.log('🔍 Sending Cypher query to neo4j-query-service for business:', businessId);
+      
+      const response = await fetch(`${backendUrl}/execute-cypher`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query: cypherQuery }),
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ 
+          message: `Failed to fetch connection path: ${response.status}` 
+        }));
+        throw new Error(errorData.message || `Failed to fetch connection path: ${response.status}`);
       }
       
-      let result;
+      const data = await response.json();
       
-      if (existingData && existingData.length > 0) {
-        result = await supabase
-          .from('user_project_businesses')
-          .update({
-            project_id: projectId,
-            project_name: projectName,
-            project_description: projectDescription
-          })
-          .eq('id', existingData[0].id)
-          .select();
+      if (data && data.records && data.records.length > 0) {
+        console.log(`✅ Connection path found for business ${businessId}`);
+        setConnectionPaths(prev => ({ 
+          ...prev, 
+          [businessId]: { found: true, data: data.records, raw: data } 
+        }));
       } else {
-        result = await supabase
-          .from('user_project_businesses')
-          .insert({
-            user_id: currentUserId,
-            business_id: businessId,
-            project_id: projectId,
-            project_name: projectName,
-            project_description: projectDescription
-          })
-          .select();
+        console.log(`❌ No connection found for business ${businessId}`);
+        setConnectionPaths(prev => ({ 
+          ...prev, 
+          [businessId]: { found: false, message: "No connection within 6 degrees" } 
+        }));
       }
-      
-      if (result.error) {
-        throw result.error;
-      }
-      
-      return result;
-    } catch (err) {
-      console.error('Error in updateBusinessProject:', err);
-      throw err;
-    }
-  };
-  
-  // Remove business from Supabase
-  const removeBusinessFromSupabase = async (businessId) => {
-    if (!currentUserId) return;
-    
-    try {
-      const { error } = await supabase
-        .from('user_project_businesses')
-        .delete()
-        .eq('user_id', currentUserId)
-        .eq('business_id', businessId);
-        
-      if (error) {
-        console.error('Error removing business:', error);
-        Alert.alert('Error', 'Failed to remove business from queue');
-      }
-    } catch (err) {
-      console.error('Error in removeBusinessFromSupabase:', err);
-      Alert.alert('Error', 'An error occurred while removing the business');
-    }
-  };
-  
-  // Create project in Supabase
-  const createProjectInSupabase = async (projectId, projectName, description) => {
-    if (!currentUserId) return;
-    
-    try {
-      const { error: projectError } = await supabase
-        .from('user_projects')
-        .upsert({
-          user_id: currentUserId,
-          project_id: projectId,
-          project_name: projectName,
-          project_description: description,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
-        });
-        
-      if (projectError) {
-        throw projectError;
-      }
-      
-      const businessesToUpdate = projects
-        .find(p => p.id === projectId)?.businesses || [];
-      
-      if (businessesToUpdate.length > 0) {
-        for (const business of businessesToUpdate) {
-          await updateBusinessProject(business.id, projectId, projectName, description);
-        }
-      }
-    } catch (err) {
-      console.error('Error in createProjectInSupabase:', err);
-      throw err;
+    } catch (error) {
+      console.warn(`⚠️ Error fetching connection path for business ${businessId}:`, error.message);
+      setConnectionPaths(prev => ({ 
+        ...prev, 
+        [businessId]: { found: false, message: "Connection search unavailable" } 
+      }));
+    } finally {
+      setLoadingPaths(prev => ({ ...prev, [businessId]: false }));
     }
   };
 
-  // Move business to project
-  const moveBusinessToProject = async (business, project) => {
-    try {
-      // Update local state immediately
-      const updatedProjects = projects.map(p => {
-        if (p.id === project.id) {
-          if (!p.businesses.some(b => b.id === business.id)) {
-            return {
-              ...p,
-              businesses: [...p.businesses, business]
-            };
+  // Remove business from queue
+  const removeBusinessFromQueue = async (businessId) => {
+    if (!currentUserId) {
+      Alert.alert("Error", "You must be logged in to manage your queue.");
+      return;
+    }
+
+    const business = queuedBusinesses.find(b => b.business_id === businessId);
+    const businessName = business?.business_name || 'this business';
+    
+    Alert.alert(
+      "Remove from Queue",
+      `Are you sure you want to remove "${businessName}" from your queue?`,
+      [
+        {
+          text: "Cancel",
+          style: "cancel"
+        },
+        {
+          text: "Remove",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              const { error } = await supabase
+                .from('user_project_businesses')
+                .delete()
+                .match({ user_id: currentUserId, business_id: businessId });
+              if (error) throw error;
+              
+              // Update local state
+              const updatedBusinesses = queuedBusinesses.filter(business => business.business_id !== businessId);
+              setQueuedBusinesses(updatedBusinesses);
+              setFilteredBusinesses(updatedBusinesses.filter(business => 
+                business.business_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                business.industry.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                (business.city && business.city.toLowerCase().includes(searchQuery.toLowerCase())) ||
+                (business.state && business.state.toLowerCase().includes(searchQuery.toLowerCase()))
+              ));
+              
+              Alert.alert("Success", `"${businessName}" has been removed from your queue.`);
+            } catch (error) {
+              console.error('Error removing from queue:', error);
+              Alert.alert("Error", "Could not remove business from queue. Please try again.");
+            }
           }
         }
-        return p;
-      });
-      
-      const updatedQueuedBusinesses = queuedBusinesses.filter(b => b.id !== business.id);
-      
-      setProjects(updatedProjects);
-      setQueuedBusinesses(updatedQueuedBusinesses);
-      
-      // Update database
-      await updateBusinessProject(business.id, project.id, project.name, project.description);
-    } catch (error) {
-      console.error('Error moving business to project:', error);
-      Alert.alert('Error', 'Failed to move business to project');
-    }
+      ]
+    );
   };
 
-  // Remove business from project
-  const removeBusinessFromProject = async (business, projectId) => {
-    try {
-      // Update local state immediately
-      const updatedProjects = projects.map(p => {
-        if (p.id === projectId) {
-          return {
-            ...p,
-            businesses: p.businesses.filter(b => b.id !== business.id)
-          };
-        }
-        return p;
-      });
-      
-      const updatedQueuedBusinesses = [...queuedBusinesses, business];
-      
-      setProjects(updatedProjects);
-      setQueuedBusinesses(updatedQueuedBusinesses);
-      
-      // Update database
-      const { data: existingData } = await supabase
-        .from('user_project_businesses')
-        .select('id')
-        .eq('user_id', currentUserId)
-        .eq('business_id', business.id);
-        
-      if (existingData && existingData.length > 0) {
-        await supabase
-          .from('user_project_businesses')
-          .update({
-            project_id: null,
-            project_name: null,
-            project_description: null
-          })
-          .eq('id', existingData[0].id);
-      }
-    } catch (error) {
-      console.error('Error removing business from project:', error);
-      Alert.alert('Error', 'Failed to remove business from project');
-    }
-  };
-  
-  // Remove business from queue completely
-  const removeBusinessFromQueue = (businessId) => {
-    setQueuedBusinesses(queuedBusinesses.filter(b => b.id !== businessId));
-    removeBusinessFromSupabase(businessId);
-  };
-  
-  // Generate a unique project ID
-  const generateProjectId = () => {
-    return `project_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+  // Handle business card press
+  const handleBusinessPress = (businessId) => {
+    setSelectedBusinessId(businessId);
+    setBusinessSliderVisible(true);
   };
 
-  // Delete project
-  const deleteProject = async (projectId) => {
-    try {
-      const projectToDelete = projects.find(p => p.id === projectId);
-      
-      if (!projectToDelete) {
-        Alert.alert('Error', 'Project not found');
-        return;
-      }
-      
-      const hasBusinesses = projectToDelete.businesses.length > 0;
-      
-      if (hasBusinesses) {
-        Alert.alert(
-          'Delete Project',
-          'This project contains business cards. What would you like to do?',
-          [
-            { text: 'Cancel', style: 'cancel' },
-            {
-              text: 'Delete Project & Businesses',
-              style: 'destructive',
-              onPress: () => executeProjectDeletion(projectId, 'delete')
-            },
-            {
-              text: 'Delete Project Only',
-              onPress: () => executeProjectDeletion(projectId, 'unassign')
-            }
-          ]
-        );
-      } else {
-        Alert.alert(
-          'Delete Project',
-          'Are you sure you want to delete this project?',
-          [
-            { text: 'Cancel', style: 'cancel' },
-            {
-              text: 'Delete',
-              style: 'destructive',
-              onPress: () => executeProjectDeletion(projectId, 'none')
-            }
-          ]
-        );
-      }
-    } catch (err) {
-      console.error('Error in deleteProject:', err);
-      Alert.alert('Error', 'An unexpected error occurred');
-    }
-  };
-  
-  // Execute project deletion
-  const executeProjectDeletion = async (projectId, businessAction) => {
-    try {
-      const projectToDelete = projects.find(p => p.id === projectId);
-      
-      if (!projectToDelete) {
-        Alert.alert('Error', 'Project not found');
-        return;
-      }
-      
-      // Update local state
-      if (projectToDelete.businesses.length > 0 && businessAction === 'unassign') {
-        setQueuedBusinesses([...queuedBusinesses, ...projectToDelete.businesses]);
-      }
-      
-      setProjects(projects.filter(p => p.id !== projectId));
-      
-      // Update database
-      if (businessAction === 'delete') {
-        await Promise.all([
-          deleteProjectFromSupabase(projectId),
-          ...projectToDelete.businesses.map(business => removeBusinessFromSupabase(business.id))
-        ]);
-      } else {
-        await deleteProjectFromSupabase(projectId);
-      }
-      
-      Alert.alert('Success', 'Project deleted successfully');
-    } catch (error) {
-      console.error('Error deleting project:', error);
-      Alert.alert('Error', 'Failed to delete project');
-    }
+  // Handle business logo press
+  const handleBusinessLogoPress = (businessId) => {
+    setSelectedBusinessId(businessId);
+    setBusinessSliderVisible(true);
   };
 
-  // Delete project from Supabase
-  const deleteProjectFromSupabase = async (projectId) => {
-    if (!currentUserId) return;
-    
-    try {
-      const { data: projectBusinesses } = await supabase
-        .from('user_project_businesses')
-        .select('id')
-        .eq('user_id', currentUserId)
-        .eq('project_id', projectId);
-        
-      for (const item of projectBusinesses || []) {
-        await supabase
-          .from('user_project_businesses')
-          .update({
-            project_id: null,
-            project_name: null,
-            project_description: null
-          })
-          .eq('id', item.id);
-      }
-      
-      await supabase
-        .from('user_projects')
-        .delete()
-        .eq('user_id', currentUserId)
-        .eq('project_id', projectId);
-    } catch (err) {
-      console.error('Error deleting project from Supabase:', err);
-      throw err;
-    }
+  // Handle add to project
+  const handleAddToProjectClick = (businessId) => {
+    setSelectedBusinessId(businessId);
+    setAddToProjectSliderVisible(true);
   };
 
-  // Render queued business card
-  const renderQueuedBusinessCard = ({ item }) => (
-    <View style={styles.queuedBusinessCard}>
-      <TouchableOpacity 
-        style={styles.removeButton}
-        onPress={() => removeBusinessFromQueue(item.id)}
-      >
-        <MaterialIcons name="close" size={18} color={colors.error} />
-      </TouchableOpacity>
-      
-      <LogoContainer business={item} />
-      <View style={styles.businessCardContent}>
-        <Text style={styles.businessName} numberOfLines={2}>{item.name}</Text>
-        <Text style={styles.businessIndustry} numberOfLines={1}>{item.industry}</Text>
-        <View style={styles.ratingContainer}>
-          <MaterialIcons name="star" size={16} color="#FFD700" />
-          <Text style={styles.ratingText}>{item.rating || "4"}</Text>
+  // Pull to refresh handler
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    if (currentUserId) {
+      await fetchUserProjectBusinesses(currentUserId);
+    }
+    setRefreshing(false);
+  }, [currentUserId]);
+
+  // Clear search
+  const clearSearch = () => {
+    setSearchQuery('');
+  };
+
+  if (isLoading) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <StatusBar style="light" />
+        <MobileHeader navigation={navigation} title="My Queue" />
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={colors.primaryBlue} />
+          <Text style={styles.loadingText}>Loading your project queue...</Text>
         </View>
-      </View>
-      
-      {/* Action buttons */}
-      <View style={styles.cardActions}>
-        <Text style={styles.actionHint}>Tap to add to project</Text>
-        {projects.length > 0 && (
-          <FlatList
-            data={projects.slice(0, 3)} // Show only first 3 projects
-            keyExtractor={project => project.id}
-            renderItem={({ item: project }) => (
-              <TouchableOpacity
-                style={styles.projectQuickAction}
-                onPress={() => moveBusinessToProject(item, project)}
-              >
-                <Text style={styles.projectQuickActionText} numberOfLines={1}>
-                  {project.name}
-                </Text>
-              </TouchableOpacity>
-            )}
-            horizontal
-            showsHorizontalScrollIndicator={false}
-          />
-        )}
-      </View>
-    </View>
-  );
-
-  // Render project business card
-  const renderProjectBusinessCard = ({ item, projectId }) => (
-    <View style={styles.projectBusinessCard}>
-      <TouchableOpacity 
-        style={styles.removeButton}
-        onPress={() => removeBusinessFromProject(item, projectId)}
-      >
-        <MaterialIcons name="close" size={18} color={colors.error} />
-      </TouchableOpacity>
-      
-      <LogoContainer business={item} />
-      <View style={styles.businessCardContent}>
-        <Text style={styles.businessName} numberOfLines={2}>{item.name}</Text>
-        <Text style={styles.businessIndustry} numberOfLines={1}>{item.industry}</Text>
-        <View style={styles.ratingContainer}>
-          <MaterialIcons name="star" size={16} color="#FFD700" />
-          <Text style={styles.ratingText}>{item.rating || "4"}</Text>
-        </View>
-      </View>
-    </View>
-  );
-
-  // Render project card
-  const renderProjectCard = ({ item }) => (
-    <View style={styles.projectCard}>
-      <View style={styles.projectHeader}>
-        <Text style={styles.projectName}>{item.name}</Text>
-        <View style={styles.projectActions}>
-          <TouchableOpacity 
-            style={styles.projectActionButton}
-            onPress={() => {
-              setSelectedProject(item);
-              setIsEditingProject(true);
-              setIsCreateProjectSliderVisible(true);
-            }}
-          >
-            <MaterialIcons name="edit" size={20} color={colors.primary} />
-          </TouchableOpacity>
-          <TouchableOpacity 
-            style={styles.projectActionButton}
-            onPress={() => deleteProject(item.id)}
-          >
-            <MaterialIcons name="delete" size={20} color={colors.error} />
-          </TouchableOpacity>
-        </View>
-      </View>
-      
-      <Text style={styles.projectDescription} numberOfLines={2}>
-        {item.description || 'No description provided'}
-      </Text>
-      
-      <View style={styles.projectBusinessesContainer}>
-        {item.businesses.length > 0 ? (
-          <FlatList
-            data={item.businesses}
-            renderItem={({ item: business }) => renderProjectBusinessCard({ item: business, projectId: item.id })}
-            keyExtractor={business => business.id}
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.projectBusinessesList}
-          />
-        ) : (
-          <View style={styles.emptyProjectContainer}>
-            <Text style={styles.emptyProjectText}>
-              No businesses assigned yet
-            </Text>
-            <Text style={styles.emptyProjectHint}>
-              Move businesses from the queue above
-            </Text>
-          </View>
-        )}
-      </View>
-    </View>
-  );
+        <MobileBottomNavigation navigation={navigation} activeRoute="ProjectQueue" />
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.container}>
-      <StatusBar style="auto" />
+      <StatusBar style="light" />
       
-      {/* Mobile Header */}
-      <MobileHeader 
+      {/* Header */}
+      <MobileHeader
         navigation={navigation}
         title="My Queue"
-        showBackButton={false}
-        rightActions={[
-          {
-            icon: 'refresh',
-            onPress: onRefresh
-          }
-        ]}
       />
-      
-      {/* Loading Indicator */}
-      {loading && (
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={colors.primary} />
-          <Text style={styles.loadingText}>Loading your queue...</Text>
-        </View>
-      )}
-      
-      {/* Error Message */}
-      {error && !loading && (
-        <View style={styles.errorContainer}>
-          <MaterialIcons name="error-outline" size={40} color={colors.error} />
-          <Text style={styles.errorText}>{error}</Text>
-          <TouchableOpacity 
-            style={styles.retryButton}
-            onPress={() => {
-              setLoading(true);
-              setError(null);
-              loadUserData().finally(() => setLoading(false));
-            }}
-          >
-            <Text style={styles.retryButtonText}>Retry</Text>
-          </TouchableOpacity>
-        </View>
-      )}
-      
-      {/* Content */}
-      {!loading && !error && (
-        <View style={styles.contentContainer}>
-          {/* Create Project Button */}
-          <View style={styles.createProjectSection}>
-            <TouchableOpacity 
-              style={styles.createProjectButton}
-              onPress={() => {
-                setSelectedProject(null);
-                setIsEditingProject(false);
-                setIsCreateProjectSliderVisible(true);
-              }}
-            >
-              <MaterialIcons name="add" size={24} color={colors.textWhite} />
-              <Text style={styles.createProjectButtonText}>Create New Project</Text>
-            </TouchableOpacity>
-          </View>
 
-          <FlatList
-            data={[{ type: 'queue' }, { type: 'projects' }]}
-            keyExtractor={(item, index) => `${item.type}-${index}`}
-            renderItem={({ item }) => {
-              if (item.type === 'queue') {
-                return (
-                  <View style={styles.queueSection}>
-                    <View style={styles.sectionHeaderContainer}>
-                      <Text style={styles.sectionHeader}>Unassigned Businesses</Text>
-                      <Text style={styles.sectionSubheader}>
-                        {queuedBusinesses.length === 0 
-                          ? 'Search and add businesses to your queue' 
-                          : `${queuedBusinesses.length} business${queuedBusinesses.length !== 1 ? 'es' : ''} in queue`}
-                      </Text>
-                    </View>
-                    
-                    {queuedBusinesses.length > 0 ? (
-                      <FlatList
-                        data={queuedBusinesses}
-                        renderItem={renderQueuedBusinessCard}
-                        keyExtractor={business => business.id}
-                        horizontal
-                        showsHorizontalScrollIndicator={false}
-                        contentContainerStyle={styles.queuedBusinessesContainer}
-                      />
-                    ) : (
-                      <View style={styles.emptyQueueContainer}>
-                        <MaterialIcons name="business" size={40} color={colors.primaryLight} />
-                        <Text style={styles.emptyQueueText}>
-                          Search for businesses to add them to your queue
-                        </Text>
-                      </View>
-                    )}
-                  </View>
-                );
-              } else {
-                return (
-                  <View style={styles.projectsSection}>
-                    <View style={styles.sectionHeaderContainer}>
-                      <Text style={styles.sectionHeader}>My Projects</Text>
-                      <Text style={styles.sectionSubheader}>
-                        {projects.length} project{projects.length !== 1 ? 's' : ''}
-                      </Text>
-                    </View>
-                    
-                    {projects.length > 0 ? (
-                      <FlatList
-                        data={projects}
-                        renderItem={renderProjectCard}
-                        keyExtractor={project => project.id}
-                        scrollEnabled={false}
-                        contentContainerStyle={styles.projectsContainer}
-                      />
-                    ) : (
-                      <View style={styles.emptyProjectsContainer}>
-                        <MaterialIcons name="folder-open" size={40} color={colors.primaryLight} />
-                        <Text style={styles.emptyProjectsText}>
-                          Create your first project to organize your businesses
-                        </Text>
-                        <TouchableOpacity 
-                          style={styles.createFirstProjectButton}
-                          onPress={() => {
-                            setSelectedProject(null);
-                            setIsEditingProject(false);
-                            setIsCreateProjectSliderVisible(true);
-                          }}
-                        >
-                          <Text style={styles.createFirstProjectText}>Create First Project</Text>
-                        </TouchableOpacity>
-                      </View>
-                    )}
-                  </View>
-                );
-              }
-            }}
-            refreshControl={
-              <RefreshControl
-                refreshing={refreshing}
-                onRefresh={onRefresh}
-                colors={[colors.primary]}
-              />
-            }
-            contentContainerStyle={styles.scrollContainer}
-            style={styles.scrollView}
-          />
+      {/* Main Content */}
+      <KeyboardAvoidingView 
+        style={styles.content}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      >
+        {/* Search Bar */}
+        <View style={styles.searchContainer}>
+          <View style={styles.searchInputContainer}>
+            <Ionicons name="search-outline" size={20} color={colors.textMedium} />
+            <TextInput
+              style={styles.searchInput}
+              placeholder="Search your queue..."
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+              placeholderTextColor={colors.textLight}
+            />
+            {searchQuery.length > 0 && (
+              <TouchableOpacity onPress={clearSearch}>
+                <Ionicons name="close-circle" size={20} color={colors.textMedium} />
+              </TouchableOpacity>
+            )}
+          </View>
         </View>
-      )}
+
+        {/* Content Area */}
+        <ScrollView
+          style={styles.mainContent}
+          contentContainerStyle={styles.resultsContent}
+          showsVerticalScrollIndicator={true}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              colors={[colors.primaryBlue]}
+            />
+          }
+        >
+          {error ? (
+            <View style={styles.errorContainer}>
+              <Ionicons name="alert-circle-outline" size={64} color={colors.error} />
+              <Text style={styles.errorText}>{error}</Text>
+            </View>
+          ) : filteredBusinesses.length === 0 ? (
+            <View style={styles.emptyContainer}>
+              <Ionicons name="business-outline" size={64} color={colors.textLight} />
+              <Text style={styles.emptyText}>
+                {searchQuery ? 'No matching businesses found' : 'Your queue is empty'}
+              </Text>
+              <Text style={styles.emptySubtext}>
+                {searchQuery 
+                  ? 'Try adjusting your search terms' 
+                  : 'Search for businesses and add them to your queue to get started'
+                }
+              </Text>
+              {!searchQuery && (
+                <TouchableOpacity 
+                  style={styles.findBusinessButton} 
+                  onPress={() => navigation.navigate('Search')}
+                >
+                  <Ionicons name="search-outline" size={20} color={colors.cardWhite} />
+                  <Text style={styles.findBusinessButtonText}>Find Businesses</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          ) : (
+            <>
+              <Text style={styles.resultsCount}>
+                Found {filteredBusinesses.length} business{filteredBusinesses.length !== 1 ? 'es' : ''}
+                {searchQuery && ` for "${searchQuery}"`}
+              </Text>
+              
+              {filteredBusinesses.map((business) => (
+                <BusinessCard
+                  key={business.business_id}
+                  business={business}
+                  onPress={handleBusinessPress}
+                  onBusinessLogoPress={handleBusinessLogoPress}
+                  onAddToProject={handleAddToProjectClick}
+                  onRemove={removeBusinessFromQueue}
+                  showRemoveButton={true}
+                  connectionPath={connectionPaths[business.business_id]}
+                  loadingConnection={loadingPaths[business.business_id]}
+                  currentUserFullName={currentUserFullName}
+                />
+              ))}
+            </>
+          )}
+        </ScrollView>
+      </KeyboardAvoidingView>
 
       {/* Create Project Slider */}
       <CreateProjectSlider 
@@ -824,42 +793,31 @@ const ProjectQueueScreen = ({ navigation, route }) => {
         }}
         project={isEditingProject ? selectedProject : null}
         onSave={(project) => {
-          if (isEditingProject) {
-            setProjects(projects.map(p => 
-              p.id === project.id ? project : p
-            ));
-            
-            createProjectInSupabase(project.id, project.name, project.description)
-              .then(() => {
-                Alert.alert('Project Updated', `Project "${project.name}" has been updated`);
-              })
-              .catch(error => {
-                console.error('Error updating project in database:', error);
-                Alert.alert('Warning', 'The project was updated in view, but there may have been an issue saving this change to the database.');
-              });
-          } else {
-            setProjects([project, ...projects]);
-            
-            createProjectInSupabase(project.id, project.name, project.description)
-              .then(() => {
-                Alert.alert('Project Created', `Project "${project.name}" created successfully`);
-              })
-              .catch(error => {
-                console.error('Error creating project in database:', error);
-                Alert.alert('Warning', 'The project was created in view, but there may have been an issue saving it to the database.');
-              });
-          }
-          
+          // Handle project creation/editing logic here
           setIsEditingProject(false);
           setSelectedProject(null);
         }}
       />
 
-      {/* Mobile Bottom Navigation */}
-      <MobileBottomNavigation 
-        navigation={navigation}
-        activeRoute="ProjectQueue"
+      {/* Business Profile Slider */}
+      <BusinessProfileSlider
+        isVisible={businessSliderVisible}
+        onClose={() => setBusinessSliderVisible(false)}
+        businessId={selectedBusinessId}
+        userId={currentUserId}
+        viewSource="project_queue"
       />
+
+      {/* Add to Project Slider */}
+      <AddToProjectSlider
+        isVisible={addToProjectSliderVisible}
+        onClose={() => setAddToProjectSliderVisible(false)}
+        businessId={selectedBusinessId}
+        userId={currentUserId}
+      />
+
+      {/* Bottom Navigation */}
+      <MobileBottomNavigation navigation={navigation} activeRoute="ProjectQueue" />
     </SafeAreaView>
   );
 };
@@ -867,40 +825,11 @@ const ProjectQueueScreen = ({ navigation, route }) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.backgroundWhite,
+    backgroundColor: colors.backgroundGray,
   },
-  contentContainer: {
+  content: {
     flex: 1,
-    paddingBottom: 90, // Account for bottom navigation
-  },
-  createProjectSection: {
-    paddingHorizontal: 20,
-    paddingVertical: 15,
-    backgroundColor: colors.cardBackground,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.borderLight,
-  },
-  createProjectButton: {
-    flexDirection: 'row',
-    backgroundColor: colors.primary,
-    paddingVertical: 12,
-    paddingHorizontal: 20,
-    borderRadius: 25,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  createProjectButtonText: {
-    color: colors.textWhite,
-    fontWeight: '600',
-    marginLeft: 8,
-    fontSize: 16,
-  },
-  scrollContainer: {
-    paddingHorizontal: 20,
-    paddingBottom: 20,
-  },
-  scrollView: {
-    flex: 1,
+    marginBottom: 70, // Space for bottom navigation
   },
   loadingContainer: {
     flex: 1,
@@ -908,252 +837,208 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   loadingText: {
-    marginTop: 10,
+    marginTop: 16,
     fontSize: 16,
-    color: colors.primary,
+    color: colors.textMedium,
+    fontWeight: '500',
+  },
+  searchContainer: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    backgroundColor: colors.cardWhite,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.borderLight,
+  },
+  searchInputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.backgroundGray,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 16,
+    color: colors.textDark,
+    marginLeft: 8,
+    marginRight: 8,
+  },
+  mainContent: {
+    flex: 1,
+  },
+  resultsContent: {
+    padding: 16,
+    paddingBottom: 32,
+  },
+  resultsCount: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: colors.textDark,
+    marginBottom: 16,
+  },
+  businessCard: {
+    backgroundColor: colors.cardWhite,
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 16,
+    elevation: 3,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+  },
+  businessCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginBottom: 12,
+  },
+  businessLogo: {
+    width: 64,
+    height: 64,
+    borderRadius: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  businessLogoImage: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 16,
+    resizeMode: 'contain',
+  },
+  businessLogoText: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: colors.cardWhite,
+  },
+  businessCardInfo: {
+    flex: 1,
+    marginRight: 8,
+  },
+  businessName: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: colors.textDark,
+    marginBottom: 4,
+    lineHeight: 22,
+  },
+  businessIndustry: {
+    fontSize: 14,
+    color: colors.textMedium,
+    marginBottom: 6,
+    fontWeight: '500',
+  },
+  businessLocation: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  businessLocationText: {
+    fontSize: 12,
+    color: colors.textMedium,
+    marginLeft: 4,
+  },
+  coverageInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  coverageText: {
+    fontSize: 12,
+    color: colors.textMedium,
+    marginLeft: 4,
+    fontWeight: '500',
+  },
+  businessCardActions: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  actionButton: {
+    padding: 8,
+    marginVertical: 2,
+    borderRadius: 20,
+  },
+  connectionVisualization: {
+    backgroundColor: colors.backgroundGray,
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 8,
+    minHeight: 60,
+    justifyContent: 'center',
+  },
+  connectionContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  connectionFound: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  connectionText: {
+    fontSize: 12,
+    color: colors.textMedium,
+    marginLeft: 8,
+    fontWeight: '500',
+  },
+  networkImage: {
+    height: 32,
+    width: 60,
+    marginRight: 8,
   },
   errorContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 20,
+    paddingVertical: 80,
   },
   errorText: {
+    marginTop: 16,
     fontSize: 16,
     color: colors.error,
     textAlign: 'center',
-    marginTop: 10,
-    marginBottom: 20,
+    fontWeight: '500',
   },
-  retryButton: {
-    backgroundColor: colors.primary,
-    paddingVertical: 10,
-    paddingHorizontal: 20,
-    borderRadius: 8,
-  },
-  retryButtonText: {
-    color: colors.textWhite,
-    fontWeight: '600',
-  },
-  sectionHeaderContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 15,
-  },
-  sectionHeader: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: colors.textDark,
-  },
-  sectionSubheader: {
-    fontSize: 14,
-    color: colors.textMedium,
-  },
-  
-  // Queue section styles
-  queueSection: {
-    marginBottom: 30,
-    padding: 15,
-    backgroundColor: colors.cardBackground,
-    borderRadius: 12,
-  },
-  queuedBusinessesContainer: {
-    paddingVertical: 10,
-  },
-  queuedBusinessCard: {
-    width: screenWidth * 0.4,
-    maxWidth: 180,
-    backgroundColor: colors.backgroundWhite,
-    borderRadius: 12,
-    padding: 15,
-    marginRight: 15,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-    position: 'relative',
-  },
-  logoContainer: {
-    width: 50,
-    height: 50,
-    borderRadius: 8,
+  emptyContainer: {
+    flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 10,
+    paddingVertical: 80,
+    paddingHorizontal: 32,
   },
-  logo: {
-    width: '100%',
-    height: '100%',
-  },
-  logoPlaceholder: {
-    fontSize: 20,
+  emptyText: {
+    marginTop: 24,
+    fontSize: 18,
     fontWeight: 'bold',
-    color: colors.textWhite,
-  },
-  businessCardContent: {
-    marginBottom: 10,
-  },
-  businessName: {
-    fontSize: 14,
-    fontWeight: 'bold',
-    color: colors.primary,
-    marginBottom: 4,
-  },
-  businessIndustry: {
-    fontSize: 12,
-    color: colors.textMedium,
-    marginBottom: 4,
-  },
-  ratingContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  ratingText: {
-    marginLeft: 4,
-    fontSize: 12,
-    color: colors.textDark,
-  },
-  removeButton: {
-    position: 'absolute',
-    top: 8,
-    right: 8,
-    zIndex: 10,
-    backgroundColor: colors.backgroundWhite,
-    borderRadius: 12,
-    padding: 4,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.2,
-    shadowRadius: 2,
-    elevation: 2,
-  },
-  cardActions: {
-    marginTop: 5,
-  },
-  actionHint: {
-    fontSize: 10,
-    color: colors.textMedium,
-    marginBottom: 5,
-  },
-  projectQuickAction: {
-    backgroundColor: colors.primary,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 4,
-    marginRight: 5,
-  },
-  projectQuickActionText: {
-    fontSize: 10,
-    color: colors.textWhite,
-    fontWeight: '500',
-  },
-  emptyQueueContainer: {
-    alignItems: 'center',
-    padding: 30,
-  },
-  emptyQueueText: {
-    fontSize: 14,
     color: colors.textMedium,
     textAlign: 'center',
-    marginTop: 10,
+    marginBottom: 8,
   },
-  
-  // Projects section styles
-  projectsSection: {
-    marginBottom: 20,
+  emptySubtext: {
+    fontSize: 14,
+    color: colors.textLight,
+    textAlign: 'center',
+    lineHeight: 20,
+    marginBottom: 32,
   },
-  projectsContainer: {
-    paddingVertical: 10,
-  },
-  projectCard: {
-    backgroundColor: colors.backgroundWhite,
-    borderRadius: 12,
-    padding: 15,
-    marginBottom: 15,
+  findBusinessButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.primaryBlue,
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 24,
+    elevation: 3,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 4,
-    elevation: 3,
   },
-  projectHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 10,
-  },
-  projectName: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: colors.primary,
-    flex: 1,
-  },
-  projectActions: {
-    flexDirection: 'row',
-  },
-  projectActionButton: {
-    padding: 8,
-    marginLeft: 5,
-  },
-  projectDescription: {
-    fontSize: 14,
-    color: colors.textMedium,
-    marginBottom: 15,
-  },
-  projectBusinessesContainer: {
-    minHeight: 80,
-  },
-  projectBusinessesList: {
-    paddingVertical: 5,
-  },
-  projectBusinessCard: {
-    width: 120,
-    backgroundColor: colors.cardBackground,
-    borderRadius: 8,
-    padding: 10,
-    marginRight: 10,
-    position: 'relative',
-  },
-  emptyProjectContainer: {
-    alignItems: 'center',
-    padding: 20,
-  },
-  emptyProjectText: {
-    fontSize: 14,
-    color: colors.textMedium,
-    textAlign: 'center',
-    fontWeight: '500',
-  },
-  emptyProjectHint: {
-    fontSize: 12,
-    color: colors.textMedium,
-    textAlign: 'center',
-    marginTop: 4,
-  },
-  emptyProjectsContainer: {
-    alignItems: 'center',
-    padding: 40,
-  },
-  emptyProjectsText: {
+  findBusinessButtonText: {
     fontSize: 16,
-    fontWeight: 'bold',
-    color: colors.textMedium,
-    textAlign: 'center',
-    marginTop: 15,
-    marginBottom: 20,
-  },
-  createFirstProjectButton: {
-    backgroundColor: colors.primary,
-    paddingVertical: 12,
-    paddingHorizontal: 24,
-    borderRadius: 8,
-  },
-  createFirstProjectText: {
-    color: colors.textWhite,
     fontWeight: '600',
-    fontSize: 16,
+    color: colors.cardWhite,
+    marginLeft: 8,
   },
 });
 

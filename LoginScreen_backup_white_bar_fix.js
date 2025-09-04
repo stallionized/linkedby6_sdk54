@@ -112,30 +112,28 @@ const LoginScreen = ({ navigation, route }) => {
   };
 
   return (
-    <SafeAreaView style={styles.safeArea} edges={[]}>
-      <StatusBar style="light" backgroundColor="#1E88E5" translucent={false} />
-      <KeyboardAvoidingView 
-        style={styles.container}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
-      >
+    <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
+      <TouchableWithoutFeedback onPress={dismissKeyboard}>
+        <KeyboardAvoidingView 
+          style={styles.container}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+        >
+          <StatusBar style="light" />
           <LinearGradient
             colors={['#1E88E5', '#90CAF9']}
             style={styles.gradient}
           >
-            <ScrollView 
-              contentContainerStyle={[
-                styles.scrollContainer,
-                keyboardVisible && styles.scrollContainerKeyboard
-              ]}
-              showsVerticalScrollIndicator={false}
-              keyboardShouldPersistTaps="always"
-              bounces={false}
-              keyboardDismissMode="interactive"
-              style={styles.scrollView}
-            >
-            <TouchableWithoutFeedback onPress={dismissKeyboard}>
-              <View style={styles.touchableArea}>
+          <ScrollView 
+            contentContainerStyle={[
+              styles.scrollContainer,
+              keyboardVisible && styles.scrollContainerKeyboard
+            ]}
+            showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+            bounces={false}
+            automaticallyAdjustKeyboardInsets={Platform.OS === 'ios'}
+          >
           <View style={styles.innerContainer}>
             {/* Logo */}
             <View style={styles.logoContainer}>
@@ -219,11 +217,10 @@ const LoginScreen = ({ navigation, route }) => {
               <Text style={styles.googleButtonText}>🔍 Login with Google</Text>
             </TouchableOpacity>
           </View>
-              </View>
-            </TouchableWithoutFeedback>
-            </ScrollView>
+          </ScrollView>
           </LinearGradient>
         </KeyboardAvoidingView>
+      </TouchableWithoutFeedback>
     </SafeAreaView>
   );
 };
@@ -235,27 +232,20 @@ const styles = StyleSheet.create({
   },
   container: {
     flex: 1,
-    backgroundColor: '#1E88E5',
   },
   gradient: {
     flex: 1,
-  },
-  scrollView: {
-    flex: 1,
-    backgroundColor: 'transparent',
   },
   scrollContainer: {
     flexGrow: 1,
     justifyContent: 'center',
     alignItems: 'center',
     padding: 20,
-    paddingBottom: Platform.OS === 'android' ? 0 : 20,
-    backgroundColor: 'transparent',
+    minHeight: '100%',
   },
   scrollContainerKeyboard: {
-    justifyContent: 'center',
-    paddingTop: 20,
-    paddingBottom: Platform.OS === 'android' ? 0 : 20,
+    justifyContent: 'flex-start',
+    paddingTop: 40,
   },
   innerContainer: {
     width: '100%',
@@ -370,10 +360,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#333',
     fontWeight: '500',
-  },
-  touchableArea: {
-    flex: 1,
-    width: '100%',
   },
 });
 

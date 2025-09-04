@@ -471,25 +471,25 @@ const RegistrationScreen = ({ navigation, route }) => {
   return (
     <SafeAreaView style={styles.safeArea}>
       <StatusBar style="light" backgroundColor="#1E88E5" />
-      <KeyboardAvoidingView 
-        style={styles.keyboardAvoidingView}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
-      >
+      <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+        <KeyboardAvoidingView 
+          style={styles.keyboardAvoidingView}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+        >
           <LinearGradient
             colors={['#1E88E5', '#90CAF9']}
             style={styles.container}
           >
-            <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-              <ScrollView 
-                contentContainerStyle={[
-                  styles.scrollContainer,
-                  keyboardVisible && styles.scrollContainerKeyboard
-                ]}
-                showsVerticalScrollIndicator={false}
-                keyboardShouldPersistTaps="always"
-                bounces={false}
-              >
+            <ScrollView 
+              contentContainerStyle={[
+                styles.scrollContainer,
+                keyboardVisible && styles.scrollContainerKeyboard
+              ]}
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+              bounces={false}
+            >
               <View style={styles.innerContainer}>
                 {/* Logo */}
                 <Image source={require('./assets/logo.png')} style={styles.iconImage} />
@@ -680,10 +680,10 @@ const RegistrationScreen = ({ navigation, route }) => {
                   </Text>
                 </TouchableOpacity>
               </View>
-              </ScrollView>
-            </TouchableWithoutFeedback>
+            </ScrollView>
           </LinearGradient>
         </KeyboardAvoidingView>
+      </TouchableWithoutFeedback>
     </SafeAreaView>
   );
 };
@@ -708,7 +708,6 @@ const styles = StyleSheet.create({
     minHeight: screenHeight - 100,
   },
   scrollContainerKeyboard: {
-    justifyContent: 'center',
     paddingVertical: 15,
   },
   innerContainer: {

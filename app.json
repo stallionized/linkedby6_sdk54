@@ -19,7 +19,9 @@
     },
     "android": {
       "package": "com.linkedbysix.app",
-      "newArchEnabled": false
+      "newArchEnabled": false,
+      "softwareKeyboardLayoutMode": "resize",
+      "windowSoftInputMode": "adjustResize"
     },
     "plugins": [
       "expo-secure-store",

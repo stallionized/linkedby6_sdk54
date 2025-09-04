@@ -16,6 +16,7 @@ import RecommendedBusinessesScreen from './RecommendedBusinessesScreen';
 import ProjectQueueScreen from './ProjectQueueScreen';
 import ConnectionsScreen from './ConnectionsScreen';
 import MessagesScreen from './MessagesScreen';
+import ConversationScreen from './ConversationScreen';
 import BusinessPricingScreen from './BusinessPricingScreen'; // Add BusinessPricingScreen
 import BillingScreen from './billingscreen'; // Fixed import path (matches your file name)
 import Toast from 'react-native-toast-message';
@@ -174,6 +175,28 @@ function AppNavigator() {
                   inputRange: [0, 1],
                   outputRange: [0, 1],
                 }),
+              },
+            };
+          },
+        }}
+      />
+      <Stack.Screen 
+        name="Conversation" 
+        component={ConversationScreen}
+        options={{
+          gestureEnabled: true,
+          title: 'Conversation', // For accessibility
+          cardStyleInterpolator: ({ current, layouts }) => {
+            return {
+              cardStyle: {
+                transform: [
+                  {
+                    translateX: current.progress.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [layouts.screen.width, 0],
+                    }),
+                  },
+                ],
               },
             };
           },
