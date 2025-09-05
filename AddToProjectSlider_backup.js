@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   StyleSheet, 
   Text, 
@@ -13,17 +13,14 @@ import {
   Dimensions,
   KeyboardAvoidingView,
   Platform,
-  ScrollView,
-  Animated,
-  TouchableWithoutFeedback,
-  StatusBar
+  ScrollView
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
+import { StatusBar } from 'expo-status-bar';
 import { supabase } from './supabaseClient';
 import { getSession } from './Auth';
 
-const { width: SCREEN_WIDTH, height: screenHeight } = Dimensions.get('window');
-const SLIDER_WIDTH = SCREEN_WIDTH * 0.85;
+const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 
 // Define colors
 const colors = {
@@ -44,9 +41,6 @@ const colors = {
 };
 
 const AddToProjectSlider = ({ isVisible, onClose, businessId }) => {
-  const slideAnim = useRef(new Animated.Value(SLIDER_WIDTH)).current;
-  const fadeAnim = useRef(new Animated.Value(0)).current;
-  
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [currentUserId, setCurrentUserId] = useState(null);
@@ -56,37 +50,6 @@ const AddToProjectSlider = ({ isVisible, onClose, businessId }) => {
   const [newProjectName, setNewProjectName] = useState('');
   const [newProjectDescription, setNewProjectDescription] = useState('');
   const [isCreatingNewProject, setIsCreatingNewProject] = useState(false);
-
-  // Animation useEffect
-  useEffect(() => {
-    if (isVisible) {
-      Animated.parallel([
-        Animated.timing(slideAnim, {
-          toValue: 0,
-          duration: 300,
-          useNativeDriver: true,
-        }),
-        Animated.timing(fadeAnim, {
-          toValue: 0.5,
-          duration: 300,
-          useNativeDriver: true,
-        })
-      ]).start();
-    } else {
-      Animated.parallel([
-        Animated.timing(slideAnim, {
-          toValue: SLIDER_WIDTH,
-          duration: 300,
-          useNativeDriver: true,
-        }),
-        Animated.timing(fadeAnim, {
-          toValue: 0,
-          duration: 300,
-          useNativeDriver: true,
-        })
-      ]).start();
-    }
-  }, [isVisible, slideAnim, fadeAnim]);
 
   // Load user session and fetch data
   useEffect(() => {
@@ -282,23 +245,11 @@ const AddToProjectSlider = ({ isVisible, onClose, businessId }) => {
       console.log(`Business ${businessId} successfully assigned to project ${projectId}`);
       console.log('Database update result:', result);
       
-      // Show success message and trigger refresh
+      // Show success message
       Alert.alert(
         'Success',
         `Business added to ${projectName}`,
-        [{ 
-          text: 'OK', 
-          onPress: () => {
-            onClose();
-            // Trigger a refresh of the parent screen if callback is provided
-            if (typeof onClose === 'function') {
-              // The parent screen should refresh when the slider closes
-              setTimeout(() => {
-                // This will be handled by the useFocusEffect in ProjectQueueScreen
-              }, 100);
-            }
-          }
-        }]
+        [{ text: 'OK', onPress: onClose }]
       );
       
       return result;
@@ -366,16 +317,7 @@ const AddToProjectSlider = ({ isVisible, onClose, businessId }) => {
       Alert.alert(
         'Success',
         'Business added to your queue',
-        [{ 
-          text: 'OK', 
-          onPress: () => {
-            onClose();
-            // Trigger a refresh of the parent screen
-            setTimeout(() => {
-              // This will be handled by the useFocusEffect in ProjectQueueScreen
-            }, 100);
-          }
-        }]
+        [{ text: 'OK', onPress: onClose }]
       );
       
     } catch (err) {
@@ -627,118 +569,134 @@ const AddToProjectSlider = ({ isVisible, onClose, businessId }) => {
     );
   };
 
-  if (!isVisible) {
-    return null;
-  }
-
   return (
     <Modal
       visible={isVisible}
+      animationType="slide"
       transparent={true}
-      animationType="none"
       onRequestClose={onClose}
     >
-      <SafeAreaView style={styles.container}>
-        <StatusBar barStyle="light-content" backgroundColor="rgba(0,0,0,0.5)" />
-        
-        <TouchableWithoutFeedback onPress={onClose}>
-          <Animated.View style={[styles.overlay, { opacity: fadeAnim }]} />
-        </TouchableWithoutFeedback>
-
-        <Animated.View
-          style={[
-            styles.slider,
-            {
-              transform: [{ translateX: slideAnim }],
-              width: SLIDER_WIDTH
-            }
-          ]}
-        >
-          <View style={styles.header}>
-            <Text style={styles.headerText}>Add to Project</Text>
-            <TouchableOpacity onPress={onClose} style={styles.closeButton}>
-              <MaterialIcons name="close" size={24} color="#333" />
-            </TouchableOpacity>
-          </View>
-
-          <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-            {renderContent()}
-            
-            {/* Action Buttons */}
-            {!loading && !error && (
-              <View style={styles.actionButtons}>
-                <TouchableOpacity
-                  style={[styles.actionButton, styles.cancelActionButton]}
+      <StatusBar style="dark" />
+      <View style={styles.overlay}>
+        <SafeAreaView style={styles.safeArea}>
+          <KeyboardAvoidingView 
+            style={styles.keyboardAvoidingView}
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+            keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+          >
+            <View style={styles.container}>
+              {/* Header */}
+              <View style={styles.header}>
+                <View style={styles.headerLeft}>
+                  <Text style={styles.title}>Add to Project</Text>
+                  {businessData && (
+                    <Text style={styles.subtitle}>{businessData.business_name}</Text>
+                  )}
+                </View>
+                <TouchableOpacity 
+                  style={styles.closeButton} 
                   onPress={onClose}
                   activeOpacity={0.7}
                 >
-                  <Text style={styles.cancelActionButtonText}>Cancel</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.actionButton, styles.addActionButton]}
-                  onPress={handleAddToProject}
-                  activeOpacity={0.7}
-                  disabled={loading}
-                >
-                  <Text style={styles.addActionButtonText}>
-                    {isCreatingNewProject
-                      ? 'Create & Add'
-                      : selectedProjectId
-                      ? 'Add to Project'
-                      : 'Add to Queue'}
-                  </Text>
+                  <MaterialIcons name="close" size={24} color={colors.textMedium} />
                 </TouchableOpacity>
               </View>
-            )}
-          </ScrollView>
-        </Animated.View>
-      </SafeAreaView>
+              
+              {/* Content */}
+              <View style={styles.content}>
+                {renderContent()}
+              </View>
+              
+              {/* Action Buttons */}
+              {!loading && !error && (
+                <View style={styles.actionButtons}>
+                  <TouchableOpacity
+                    style={[styles.actionButton, styles.cancelActionButton]}
+                    onPress={onClose}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={styles.cancelActionButtonText}>Cancel</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.actionButton, styles.addActionButton]}
+                    onPress={handleAddToProject}
+                    activeOpacity={0.7}
+                    disabled={loading}
+                  >
+                    <Text style={styles.addActionButtonText}>
+                      {isCreatingNewProject
+                        ? 'Create & Add'
+                        : selectedProjectId
+                        ? 'Add to Project'
+                        : 'Add to Queue'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+            </View>
+          </KeyboardAvoidingView>
+        </SafeAreaView>
+      </View>
     </Modal>
   );
 };
 
 const styles = StyleSheet.create({
-  container: {
+  overlay: {
+    flex: 1,
+    backgroundColor: colors.backdrop,
+    justifyContent: 'flex-end',
+  },
+  safeArea: {
     flex: 1,
   },
-  overlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: '#000',
+  keyboardAvoidingView: {
+    flex: 1,
   },
-  slider: {
-    position: 'absolute',
-    top: 0,
-    right: 0,
-    height: '100%',
-    backgroundColor: '#fff',
-    shadowColor: '#000',
-    shadowOffset: { width: -2, height: 0 },
-    shadowOpacity: 0.25,
-    shadowRadius: 5,
-    elevation: 5,
+  container: {
+    backgroundColor: colors.backgroundWhite,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    maxHeight: screenHeight * 0.9,
+    minHeight: screenHeight * 0.5,
+    overflow: 'hidden',
   },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    padding: 16,
+    padding: 20,
+    paddingBottom: 16,
     borderBottomWidth: 1,
-    borderBottomColor: '#e0e0e0',
-    paddingTop: Platform.OS === 'ios' ? 50 : 16,
+    borderBottomColor: colors.borderLight,
   },
-  headerText: {
-    fontSize: 18,
+  headerLeft: {
+    flex: 1,
+  },
+  title: {
+    fontSize: 20,
     fontWeight: 'bold',
-    color: '#333',
+    color: colors.textDark,
+  },
+  subtitle: {
+    fontSize: 14,
+    color: colors.textMedium,
+    marginTop: 2,
   },
   closeButton: {
-    padding: 4,
+    padding: 8,
+    borderRadius: 20,
   },
   content: {
-    padding: 16,
-    paddingBottom: 100,
+    flex: 1,
+    paddingHorizontal: 20,
+    paddingTop: 16,
+  },
+  scrollContent: {
+    flex: 1,
   },
   loadingContainer: {
+    flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
     minHeight: 200,
@@ -746,9 +704,10 @@ const styles = StyleSheet.create({
   loadingText: {
     marginTop: 16,
     fontSize: 16,
-    color: '#6B7280',
+    color: colors.textMedium,
   },
   errorContainer: {
+    flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
     padding: 20,
@@ -756,44 +715,44 @@ const styles = StyleSheet.create({
   },
   errorText: {
     fontSize: 16,
-    color: '#EF4444',
+    color: colors.error,
     textAlign: 'center',
     marginTop: 16,
     marginBottom: 20,
   },
   retryButton: {
-    backgroundColor: '#0D47A1',
+    backgroundColor: colors.primary,
     paddingVertical: 12,
     paddingHorizontal: 24,
     borderRadius: 8,
   },
   retryButtonText: {
-    color: '#FFFFFF',
+    color: colors.textWhite,
     fontSize: 16,
     fontWeight: '600',
   },
   businessInfo: {
     marginBottom: 24,
     padding: 16,
-    backgroundColor: '#F9FAFB',
+    backgroundColor: colors.cardBackground,
     borderRadius: 12,
     borderLeftWidth: 4,
-    borderLeftColor: '#0D47A1',
+    borderLeftColor: colors.primary,
   },
   businessName: {
     fontSize: 18,
     fontWeight: 'bold',
-    color: '#1F2937',
+    color: colors.textDark,
     marginBottom: 4,
   },
   businessIndustry: {
     fontSize: 14,
-    color: '#6B7280',
+    color: colors.textMedium,
   },
   sectionTitle: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#1F2937',
+    color: colors.textDark,
     marginBottom: 12,
     marginTop: 8,
   },
@@ -806,23 +765,23 @@ const styles = StyleSheet.create({
     padding: 16,
     borderRadius: 12,
     marginBottom: 8,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: colors.backgroundWhite,
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: colors.borderLight,
   },
   selectedProjectItem: {
     backgroundColor: '#E3F2FD',
-    borderColor: '#0D47A1',
+    borderColor: colors.primary,
   },
   projectName: {
     fontSize: 16,
-    color: '#1F2937',
+    color: colors.textDark,
     marginLeft: 12,
     flex: 1,
   },
   noProjectsText: {
     fontSize: 14,
-    color: '#6B7280',
+    color: colors.textMedium,
     textAlign: 'center',
     marginVertical: 20,
     fontStyle: 'italic',
@@ -833,14 +792,14 @@ const styles = StyleSheet.create({
     padding: 16,
     borderRadius: 12,
     borderWidth: 2,
-    borderColor: '#0D47A1',
+    borderColor: colors.primary,
     borderStyle: 'dashed',
     marginVertical: 16,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: colors.backgroundWhite,
   },
   createNewText: {
     fontSize: 16,
-    color: '#0D47A1',
+    color: colors.primary,
     marginLeft: 12,
     fontWeight: '600',
   },
@@ -848,23 +807,23 @@ const styles = StyleSheet.create({
     marginVertical: 16,
     padding: 16,
     borderRadius: 12,
-    backgroundColor: '#F9FAFB',
+    backgroundColor: colors.cardBackground,
   },
   formTitle: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#1F2937',
+    color: colors.textDark,
     marginBottom: 16,
   },
   input: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: colors.inputBackground,
     borderWidth: 1,
-    borderColor: '#D1D5DB',
+    borderColor: colors.inputBorder,
     borderRadius: 8,
     padding: 12,
     marginBottom: 12,
     fontSize: 16,
-    color: '#1F2937',
+    color: colors.textDark,
   },
   textArea: {
     minHeight: 100,
@@ -887,30 +846,34 @@ const styles = StyleSheet.create({
   cancelButton: {
     backgroundColor: '#F3F4F6',
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: colors.borderLight,
   },
   cancelButtonText: {
-    color: '#1F2937',
+    color: colors.textDark,
     fontSize: 16,
     fontWeight: '500',
   },
   createButton: {
-    backgroundColor: '#0D47A1',
+    backgroundColor: colors.primary,
   },
   createButtonText: {
-    color: '#FFFFFF',
+    color: colors.textWhite,
     fontWeight: '600',
     fontSize: 16,
   },
   actionButtons: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginTop: 30,
+    padding: 20,
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: colors.borderLight,
+    backgroundColor: colors.backgroundWhite,
   },
   actionButton: {
     flex: 1,
-    paddingVertical: 15,
-    borderRadius: 8,
+    paddingVertical: 16,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
     marginHorizontal: 6,
@@ -918,24 +881,19 @@ const styles = StyleSheet.create({
   cancelActionButton: {
     backgroundColor: '#F3F4F6',
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: colors.borderLight,
   },
   cancelActionButtonText: {
-    color: '#1F2937',
+    color: colors.textDark,
     fontSize: 16,
     fontWeight: '600',
   },
   addActionButton: {
-    backgroundColor: '#1E88E5',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
+    backgroundColor: colors.primary,
   },
   addActionButtonText: {
-    color: '#FFFFFF',
-    fontWeight: 'bold',
+    color: colors.textWhite,
+    fontWeight: '600',
     fontSize: 16,
   },
 });

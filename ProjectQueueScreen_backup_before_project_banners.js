@@ -176,42 +176,6 @@ const BusinessLogo = ({ business }) => {
   );
 };
 
-// Project Banner Component
-const ProjectBanner = ({ projectName, projectId }) => {
-  // Generate consistent color for each project
-  const getProjectColor = (name, id) => {
-    if (!name || name === 'Unassigned') {
-      return colors.textLight; // Gray for unassigned
-    }
-    
-    const projectColors = [
-      '#1E88E5', '#43A047', '#FB8C00', '#8E24AA', '#E53935',
-      '#00ACC1', '#7CB342', '#FF7043', '#5E35B1', '#C0CA33',
-      '#F4511E', '#00897B', '#3949AB', '#D81B60', '#6D4C41'
-    ];
-    
-    // Use project ID or name to generate consistent color
-    const hashString = id || name;
-    let hash = 0;
-    for (let i = 0; i < hashString.length; i++) {
-      hash = hashString.charCodeAt(i) + ((hash << 5) - hash);
-    }
-    const index = Math.abs(hash) % projectColors.length;
-    return projectColors[index];
-  };
-
-  const bannerColor = getProjectColor(projectName, projectId);
-  const displayName = projectName || 'Unassigned';
-
-  return (
-    <View style={[styles.projectBanner, { backgroundColor: bannerColor }]}>
-      <Text style={styles.projectBannerText} numberOfLines={1}>
-        {displayName}
-      </Text>
-    </View>
-  );
-};
-
 // Business Card Component (same layout as RecommendedBusinessesScreen)
 const BusinessCard = ({ 
   business, 
@@ -226,12 +190,6 @@ const BusinessCard = ({
 }) => {
   return (
     <TouchableOpacity style={styles.businessCard} onPress={() => onPress(business.business_id)}>
-      {/* Project Banner */}
-      <ProjectBanner 
-        projectName={business.project_name} 
-        projectId={business.project_id}
-      />
-      
       <View style={styles.businessCardHeader}>
         <TouchableOpacity onPress={() => onBusinessLogoPress(business.business_id)}>
           <BusinessLogo business={business} />
@@ -503,7 +461,7 @@ const ProjectQueueScreen = ({ navigation }) => {
   // Process project businesses data
   const processProjectBusinesses = (projectBusinesses, standaloneProjects = []) => {
     const projectMap = new Map();
-    const allBusinesses = [];
+    const unassignedBusinesses = [];
     
     if (projectBusinesses && projectBusinesses.length > 0) {
       projectBusinesses.forEach(item => {
@@ -522,15 +480,8 @@ const ProjectQueueScreen = ({ navigation }) => {
           zip_code: item.business_profiles.zip_code,
           coverage_type: item.business_profiles.coverage_type,
           coverage_details: item.business_profiles.coverage_details,
-          coverage_radius: item.business_profiles.coverage_radius,
-          // Add project information to the business object
-          project_id: item.project_id,
-          project_name: item.project_name,
-          project_description: item.project_description
+          coverage_radius: item.business_profiles.coverage_radius
         };
-        
-        // Add all businesses to the main list (both assigned and unassigned)
-        allBusinesses.push(business);
         
         if (item.project_id && item.project_name) {
           if (!projectMap.has(item.project_id)) {
@@ -546,6 +497,8 @@ const ProjectQueueScreen = ({ navigation }) => {
           
           const project = projectMap.get(item.project_id);
           project.businesses.push(business);
+        } else {
+          unassignedBusinesses.push(business);
         }
       });
     }
@@ -565,9 +518,8 @@ const ProjectQueueScreen = ({ navigation }) => {
       });
     }
     
-    // Show ALL businesses (both assigned and unassigned) with project banners
-    setQueuedBusinesses(allBusinesses);
-    setFilteredBusinesses(allBusinesses);
+    setQueuedBusinesses(unassignedBusinesses);
+    setFilteredBusinesses(unassignedBusinesses);
     setProjects(Array.from(projectMap.values()));
   };
 
@@ -940,7 +892,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'flex-start',
     marginBottom: 12,
-    marginTop: 40, // Add space for the project banner
   },
   businessLogo: {
     width: 64,
@@ -1088,25 +1039,6 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: colors.cardWhite,
     marginLeft: 8,
-  },
-  projectBanner: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    height: 32,
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
-    justifyContent: 'center',
-    alignItems: 'center',
-    zIndex: 1,
-  },
-  projectBannerText: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: colors.cardWhite,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
   },
 });
 
