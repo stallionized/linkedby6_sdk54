@@ -11,7 +11,6 @@ import {
   Dimensions,
   Keyboard,
   Modal,
-  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
@@ -19,9 +18,6 @@ import { Ionicons, MaterialIcons } from '@expo/vector-icons';
 import EmojiSelector from 'react-native-emoji-selector';
 import { useAuth } from './Auth';
 import { supabase } from './supabaseClient';
-import WebRTCService from './services/WebRTCService';
-import IncomingCallModal from './components/IncomingCallModal';
-import ActiveCallScreen from './components/ActiveCallScreen';
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 
@@ -61,15 +57,6 @@ const ConversationScreen = ({ navigation, route }) => {
   const flatListRef = useRef(null);
   const textInputRef = useRef(null);
 
-  // Voice call states
-  const [showIncomingCall, setShowIncomingCall] = useState(false);
-  const [showActiveCall, setShowActiveCall] = useState(false);
-  const [callState, setCallState] = useState('idle'); // idle, calling, incoming, active, ended
-  const [incomingCallData, setIncomingCallData] = useState(null);
-  const [activeCallData, setActiveCallData] = useState(null);
-  const [isMuted, setIsMuted] = useState(false);
-  const [callDuration, setCallDuration] = useState(0);
-
   // Keyboard event listeners
   useEffect(() => {
     const keyboardDidShowListener = Keyboard.addListener('keyboardDidShow', (event) => {
@@ -99,23 +86,6 @@ const ConversationScreen = ({ navigation, route }) => {
       setupRealtimeSubscription();
     }
   }, [user, route.params?.conversationId]);
-
-  // Initialize WebRTC service when component mounts
-  useEffect(() => {
-    if (user && user.id) {
-      WebRTCService.initialize(
-        user.id,
-        handleCallStateChange,
-        handleRemoteStream,
-        handleLocalStream
-      );
-    }
-
-    return () => {
-      // Cleanup WebRTC service when component unmounts
-      WebRTCService.destroy();
-    };
-  }, [user]);
 
   const loadMessages = async () => {
     try {
@@ -396,115 +366,6 @@ const ConversationScreen = ({ navigation, route }) => {
     }
   };
 
-  // WebRTC callback handlers
-  const handleCallStateChange = (state, callData) => {
-    console.log('Call state changed:', state, callData);
-    setCallState(state);
-    
-    switch (state) {
-      case 'incoming':
-        // Enhance incoming call data with contact information
-        const enhancedIncomingCallData = {
-          ...callData,
-          contactName: callData?.callerName || contact?.name,
-          contactAvatar: callData?.callerAvatar || contact?.profilePicture || contact?.avatar,
-          callType: 'user'
-        };
-        setIncomingCallData(enhancedIncomingCallData);
-        setShowIncomingCall(true);
-        break;
-      case 'active':
-        // Enhance active call data with contact information
-        const enhancedActiveCallData = {
-          ...callData,
-          contactName: callData?.contactName || contact?.name,
-          contactAvatar: callData?.contactAvatar || contact?.profilePicture || contact?.avatar,
-          callType: 'user',
-          receiverId: contact?.id,
-          receiverName: contact?.name
-        };
-        setActiveCallData(enhancedActiveCallData);
-        setShowIncomingCall(false);
-        setShowActiveCall(true);
-        break;
-      case 'ended':
-        setShowIncomingCall(false);
-        setShowActiveCall(false);
-        setIncomingCallData(null);
-        setActiveCallData(null);
-        setIsMuted(false);
-        setCallDuration(0);
-        break;
-      default:
-        break;
-    }
-  };
-
-  const handleRemoteStream = (stream) => {
-    console.log('Remote stream received:', stream);
-    // Handle remote audio stream
-  };
-
-  const handleLocalStream = (stream) => {
-    console.log('Local stream received:', stream);
-    // Handle local audio stream
-  };
-
-  // Voice call functions
-  const handlePhoneCall = async () => {
-    if (!contact?.id) {
-      Alert.alert('Error', 'Cannot call this contact - no contact ID available');
-      return;
-    }
-    
-    try {
-      await WebRTCService.startCall(
-        contact.id, 
-        contact.name || 'Unknown Contact',
-        'user'
-      );
-    } catch (error) {
-      console.error('Error starting call:', error);
-      Alert.alert('Error', 'Failed to start call');
-    }
-  };
-
-  const handleAcceptCall = async () => {
-    try {
-      await WebRTCService.acceptCall();
-    } catch (error) {
-      console.error('Error accepting call:', error);
-      Alert.alert('Error', 'Failed to accept call');
-    }
-  };
-
-  const handleDeclineCall = async () => {
-    try {
-      await WebRTCService.endCall();
-      setShowIncomingCall(false);
-    } catch (error) {
-      console.error('Error declining call:', error);
-    }
-  };
-
-  const handleEndCall = async () => {
-    try {
-      await WebRTCService.endCall();
-      setShowActiveCall(false);
-    } catch (error) {
-      console.error('Error ending call:', error);
-    }
-  };
-
-  const handleToggleMute = async () => {
-    try {
-      const newMuteState = await WebRTCService.toggleMute();
-      setIsMuted(newMuteState);
-    } catch (error) {
-      console.error('Error toggling mute:', error);
-    }
-  };
-
   const renderMessage = ({ item, index }) => {
     const showDate = index === 0 || formatDate(item.timestamp) !== formatDate(messages[index - 1]?.timestamp);
     const dateToShow = formatDate(item.timestamp);
@@ -576,14 +437,14 @@ const ConversationScreen = ({ navigation, route }) => {
         </View>
       </View>
       
-        <View style={styles.headerActions}>
-          <TouchableOpacity style={styles.headerAction} onPress={handlePhoneCall}>
-            <Ionicons name="call" size={24} color={colors.cardWhite} />
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.headerAction}>
-            <Ionicons name="ellipsis-vertical" size={24} color={colors.cardWhite} />
-          </TouchableOpacity>
-        </View>
+      <View style={styles.headerActions}>
+        <TouchableOpacity style={styles.headerAction}>
+          <Ionicons name="call" size={24} color={colors.cardWhite} />
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.headerAction}>
+          <Ionicons name="ellipsis-vertical" size={24} color={colors.cardWhite} />
+        </TouchableOpacity>
+      </View>
     </View>
   );
 
@@ -615,7 +476,7 @@ const ConversationScreen = ({ navigation, route }) => {
         </View>
         
         <View style={styles.headerActions}>
-          <TouchableOpacity style={styles.headerAction} onPress={handlePhoneCall}>
+          <TouchableOpacity style={styles.headerAction}>
             <Ionicons name="call" size={24} color={colors.cardWhite} />
           </TouchableOpacity>
           <TouchableOpacity style={styles.headerAction}>
@@ -862,35 +723,6 @@ const ConversationScreen = ({ navigation, route }) => {
             </View>
           </View>
         </Modal>
-
-        {/* Voice Call Components */}
-        <IncomingCallModal
-          visible={showIncomingCall}
-          callerName={incomingCallData?.callerName || 'Unknown Caller'}
-          callerAvatar={incomingCallData?.callerAvatar}
-          onAccept={handleAcceptCall}
-          onDecline={handleDeclineCall}
-        />
-
-        <ActiveCallScreen
-          visible={showActiveCall}
-          callData={{
-            contactName: activeCallData?.contactName || contact?.name || 'Unknown Contact',
-            userProfilePicture: activeCallData?.contactAvatar || contact?.profilePicture || contact?.avatar,
-            callType: 'user',
-            receiverId: contact?.id,
-            receiverName: contact?.name,
-            ...activeCallData
-          }}
-          contactName={activeCallData?.contactName || contact?.name || 'Unknown Contact'}
-          contactInfo={contact?.title || contact?.company}
-          callDuration={callDuration}
-          onEndCall={handleEndCall}
-          onToggleMute={handleToggleMute}
-          onToggleSpeaker={() => {}}
-          isMuted={isMuted}
-          isSpeakerOn={false}
-        />
       </KeyboardAvoidingView>
     </View>
   );
