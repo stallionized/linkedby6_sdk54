@@ -30,9 +30,6 @@ import WebRTCService from './services/WebRTCService';
 import IncomingCallModal from './components/IncomingCallModal';
 import ActiveCallScreen from './components/ActiveCallScreen';
 
-// Import web browser component
-import WebBrowserSlider from './components/WebBrowserSlider';
-
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 
 // Mobile-optimized constants - UPDATED: Full screen width
@@ -207,10 +204,6 @@ const BusinessProfileSlider = ({ isVisible, onClose, businessId, userId, viewSou
   const [callDuration, setCallDuration] = useState(0);
   const [isMuted, setIsMuted] = useState(false);
   const [isSpeakerOn, setIsSpeakerOn] = useState(false);
-
-  // Web browser states
-  const [showWebBrowser, setShowWebBrowser] = useState(false);
-  const [browserUrl, setBrowserUrl] = useState('');
 
   // Bullseye configuration - updated for stroke-based concentric rings
   const centerX = 150;
@@ -1087,9 +1080,15 @@ const BusinessProfileSlider = ({ isVisible, onClose, businessId, userId, viewSou
       url = 'https://' + url;
     }
     
-    // Open in internal web browser slider instead of external browser
-    setBrowserUrl(url);
-    setShowWebBrowser(true);
+    Linking.canOpenURL(url)
+      .then(supported => {
+        if (supported) {
+          Linking.openURL(url);
+        } else {
+          Alert.alert("Error", "Website URL not supported");
+        }
+      })
+      .catch(err => console.error('Error opening website:', err));
   };
   
   // Function to format day of week
@@ -2005,16 +2004,6 @@ const BusinessProfileSlider = ({ isVisible, onClose, businessId, userId, viewSou
                 console.error('Error toggling speaker:', error);
               }
             }}
-          />
-        )}
-
-        {/* Web Browser Slider */}
-        {showWebBrowser && (
-          <WebBrowserSlider
-            isVisible={showWebBrowser}
-            onClose={() => setShowWebBrowser(false)}
-            url={browserUrl}
-            businessName={profileData?.businessName}
           />
         )}
       </Animated.View>

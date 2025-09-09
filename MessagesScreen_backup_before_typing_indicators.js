@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -41,10 +41,6 @@ const MessagesScreen = ({ navigation }) => {
   const [loading, setLoading] = useState(true);
   const [isBusinessMode, setIsBusinessMode] = useState(false);
   const [userBusinessProfile, setUserBusinessProfile] = useState(null);
-  
-  // Typing indicator states
-  const [typingIndicators, setTypingIndicators] = useState({}); // conversationId -> isTyping
-  const typingChannelsRef = useRef({});
 
   // Check if user has a business profile and can switch modes
   useEffect(() => {
@@ -58,16 +54,6 @@ const MessagesScreen = ({ navigation }) => {
       setupRealtimeSubscription();
     }
   }, [user, isBusinessMode]);
-
-  // Set up typing indicator channels when conversations change
-  useEffect(() => {
-    if (conversations.length > 0) {
-      setupTypingIndicatorChannels();
-    }
-    return () => {
-      cleanupTypingChannels();
-    };
-  }, [conversations, user, isBusinessMode, userBusinessProfile]);
 
   const checkUserBusinessProfile = async () => {
     if (!user) return;
@@ -248,67 +234,6 @@ const MessagesScreen = ({ navigation }) => {
     };
   };
 
-  const setupTypingIndicatorChannels = () => {
-    if (!user || conversations.length === 0) return;
-
-    // Clean up existing channels first
-    cleanupTypingChannels();
-
-    conversations.forEach(conversation => {
-      const conversationId = conversation.id;
-      const channelName = `typing_${conversationId}`;
-      
-      // Create typing indicator channel for this conversation
-      const typingChannel = supabase
-        .channel(channelName)
-        .on('broadcast', { event: 'typing' }, (payload) => {
-          const { user_id, business_id, is_typing } = payload.payload;
-          
-          // Determine if this typing event is from the other party
-          let isFromOtherParty = false;
-          
-          if (isBusinessMode && userBusinessProfile) {
-            // In business mode, we care about typing from the user
-            isFromOtherParty = user_id && user_id !== user.id;
-          } else {
-            // In user mode, we care about typing from the business
-            isFromOtherParty = business_id && business_id !== conversation.otherPartyId;
-          }
-          
-          if (isFromOtherParty) {
-            setTypingIndicators(prev => ({
-              ...prev,
-              [conversationId]: is_typing
-            }));
-            
-            // Clear typing indicator after 3 seconds if no update
-            if (is_typing) {
-              setTimeout(() => {
-                setTypingIndicators(prev => ({
-                  ...prev,
-                  [conversationId]: false
-                }));
-              }, 3000);
-            }
-          }
-        })
-        .subscribe();
-
-      // Store the channel reference
-      typingChannelsRef.current[conversationId] = typingChannel;
-    });
-  };
-
-  const cleanupTypingChannels = () => {
-    Object.values(typingChannelsRef.current).forEach(channel => {
-      if (channel) {
-        channel.unsubscribe();
-      }
-    });
-    typingChannelsRef.current = {};
-    setTypingIndicators({});
-  };
-
   const toggleBusinessMode = () => {
     if (userBusinessProfile) {
       setIsBusinessMode(!isBusinessMode);
@@ -382,55 +307,36 @@ const MessagesScreen = ({ navigation }) => {
     }
   };
 
-  const TypingIndicator = () => (
-    <View style={styles.typingIndicator}>
-      <View style={[styles.typingDot, styles.typingDot1]} />
-      <View style={[styles.typingDot, styles.typingDot2]} />
-      <View style={[styles.typingDot, styles.typingDot3]} />
-    </View>
-  );
-
-  const renderMessage = ({ item }) => {
-    const isTyping = typingIndicators[item.id];
-    
-    return (
-      <TouchableOpacity
-        style={[styles.messageItem, item.unread && styles.unreadMessage]}
-        onPress={() => handleMessagePress(item.id)}
-      >
-        <View style={styles.messageHeader}>
-          <View style={styles.avatarContainer}>
-            <View style={styles.avatar}>
-              <Text style={styles.avatarText}>
-                {item.sender.split(' ').map(n => n[0]).join('')}
-              </Text>
-            </View>
+  const renderMessage = ({ item }) => (
+    <TouchableOpacity
+      style={[styles.messageItem, item.unread && styles.unreadMessage]}
+      onPress={() => handleMessagePress(item.id)}
+    >
+      <View style={styles.messageHeader}>
+        <View style={styles.avatarContainer}>
+          <View style={styles.avatar}>
+            <Text style={styles.avatarText}>
+              {item.sender.split(' ').map(n => n[0]).join('')}
+            </Text>
           </View>
-          <View style={styles.messageContent}>
-            <View style={styles.messageTop}>
-              <Text style={[styles.senderName, item.unread && styles.unreadText]}>
-                {item.sender}
-              </Text>
-              <Text style={styles.timestamp}>
-                {formatTimestamp(item.timestamp)}
-              </Text>
-            </View>
-            {isTyping ? (
-              <View style={styles.typingContainer}>
-                <TypingIndicator />
-                <Text style={styles.typingText}>typing...</Text>
-              </View>
-            ) : (
-              <Text style={styles.messageText} numberOfLines={2}>
-                {item.message}
-              </Text>
-            )}
-          </View>
-          {item.unread && <View style={styles.unreadIndicator} />}
         </View>
-      </TouchableOpacity>
-    );
-  };
+        <View style={styles.messageContent}>
+          <View style={styles.messageTop}>
+            <Text style={[styles.senderName, item.unread && styles.unreadText]}>
+              {item.sender}
+            </Text>
+            <Text style={styles.timestamp}>
+              {formatTimestamp(item.timestamp)}
+            </Text>
+          </View>
+          <Text style={styles.messageText} numberOfLines={2}>
+            {item.message}
+          </Text>
+        </View>
+        {item.unread && <View style={styles.unreadIndicator} />}
+      </View>
+    </TouchableOpacity>
+  );
 
   const renderEmptyState = () => (
     <View style={styles.emptyState}>
@@ -681,36 +587,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: colors.textMedium,
     textAlign: 'center',
-  },
-  typingContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  typingIndicator: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginRight: 8,
-  },
-  typingDot: {
-    width: 4,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: colors.primaryBlue,
-    marginHorizontal: 1,
-  },
-  typingDot1: {
-    opacity: 0.4,
-  },
-  typingDot2: {
-    opacity: 0.7,
-  },
-  typingDot3: {
-    opacity: 1,
-  },
-  typingText: {
-    fontSize: 14,
-    color: colors.primaryBlue,
-    fontStyle: 'italic',
   },
 });
 

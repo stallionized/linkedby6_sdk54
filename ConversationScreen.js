@@ -70,6 +70,12 @@ const ConversationScreen = ({ navigation, route }) => {
   const [isMuted, setIsMuted] = useState(false);
   const [callDuration, setCallDuration] = useState(0);
 
+  // Typing indicator states
+  const [isTyping, setIsTyping] = useState(false);
+  const [otherUserTyping, setOtherUserTyping] = useState(false);
+  const [typingTimeout, setTypingTimeout] = useState(null);
+  const typingChannelRef = useRef(null);
+
   // Keyboard event listeners
   useEffect(() => {
     const keyboardDidShowListener = Keyboard.addListener('keyboardDidShow', (event) => {
@@ -97,8 +103,21 @@ const ConversationScreen = ({ navigation, route }) => {
     if (user && route.params?.conversationId) {
       loadMessages();
       setupRealtimeSubscription();
+      setupTypingIndicatorChannel();
     }
   }, [user, route.params?.conversationId]);
+
+  // Cleanup typing indicators on unmount
+  useEffect(() => {
+    return () => {
+      if (typingChannelRef.current) {
+        supabase.removeChannel(typingChannelRef.current);
+      }
+      if (typingTimeout) {
+        clearTimeout(typingTimeout);
+      }
+    };
+  }, []);
 
   // Initialize WebRTC service when component mounts
   useEffect(() => {
@@ -227,6 +246,92 @@ const ConversationScreen = ({ navigation, route }) => {
     return () => {
       messageSubscription.unsubscribe();
     };
+  };
+
+  const setupTypingIndicatorChannel = () => {
+    const { conversationId, isBusinessMode: routeIsBusinessMode, userBusinessProfile: routeUserBusinessProfile } = route.params || {};
+    if (!conversationId || !user) return;
+
+    // Create typing indicator channel
+    typingChannelRef.current = supabase
+      .channel(`typing_${conversationId}`)
+      .on('broadcast', { event: 'typing' }, (payload) => {
+        const { userId, isTyping: userIsTyping, senderRole } = payload.payload;
+        
+        // Determine current user details
+        const isBusinessSender = routeIsBusinessMode || false;
+        const currentUserId = isBusinessSender && routeUserBusinessProfile 
+          ? routeUserBusinessProfile.business_id 
+          : user.id;
+        const currentUserRole = isBusinessSender ? 'business' : 'standard_user';
+        
+        // Only show typing indicator if it's from the other user
+        if (userId !== currentUserId || senderRole !== currentUserRole) {
+          setOtherUserTyping(userIsTyping);
+          
+          // Auto-hide typing indicator after 3 seconds of inactivity
+          if (userIsTyping) {
+            setTimeout(() => {
+              setOtherUserTyping(false);
+            }, 3000);
+          }
+        }
+      })
+      .subscribe();
+  };
+
+  const sendTypingIndicator = (isTyping) => {
+    const { conversationId, isBusinessMode: routeIsBusinessMode, userBusinessProfile: routeUserBusinessProfile } = route.params || {};
+    if (!conversationId || !user || !typingChannelRef.current) return;
+
+    // Determine sender details
+    const isBusinessSender = routeIsBusinessMode || false;
+    const senderId = isBusinessSender && routeUserBusinessProfile 
+      ? routeUserBusinessProfile.business_id 
+      : user.id;
+    const senderRole = isBusinessSender ? 'business' : 'standard_user';
+
+    typingChannelRef.current.send({
+      type: 'broadcast',
+      event: 'typing',
+      payload: {
+        userId: senderId,
+        senderRole: senderRole,
+        isTyping: isTyping,
+        timestamp: new Date().toISOString()
+      }
+    });
+  };
+
+  const handleTypingStart = () => {
+    if (!isTyping) {
+      setIsTyping(true);
+      sendTypingIndicator(true);
+    }
+
+    // Clear existing timeout
+    if (typingTimeout) {
+      clearTimeout(typingTimeout);
+    }
+
+    // Set new timeout to stop typing indicator after 2 seconds of inactivity
+    const newTimeout = setTimeout(() => {
+      setIsTyping(false);
+      sendTypingIndicator(false);
+    }, 2000);
+
+    setTypingTimeout(newTimeout);
+  };
+
+  const handleTypingStop = () => {
+    if (typingTimeout) {
+      clearTimeout(typingTimeout);
+    }
+    
+    if (isTyping) {
+      setIsTyping(false);
+      sendTypingIndicator(false);
+    }
   };
 
   const formatTime = (timestamp) => {
@@ -640,6 +745,22 @@ const ConversationScreen = ({ navigation, route }) => {
           onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: false })}
         />
         
+        {/* Typing Indicator */}
+        {otherUserTyping && (
+          <View style={styles.typingIndicatorContainer}>
+            <View style={styles.typingIndicator}>
+              <View style={styles.typingDots}>
+                <View style={[styles.typingDot, styles.typingDot1]} />
+                <View style={[styles.typingDot, styles.typingDot2]} />
+                <View style={[styles.typingDot, styles.typingDot3]} />
+              </View>
+              <Text style={styles.typingText}>
+                {contact?.name || 'Contact'} is typing...
+              </Text>
+            </View>
+          </View>
+        )}
+        
         <View style={styles.inputContainer}>
           <TouchableOpacity 
             style={styles.inputAction}
@@ -656,13 +777,26 @@ const ConversationScreen = ({ navigation, route }) => {
             ref={textInputRef}
             style={styles.textInput}
             value={newMessage}
-            onChangeText={setNewMessage}
+            onChangeText={(text) => {
+              setNewMessage(text);
+              // Trigger typing indicator when user types
+              if (text.length > 0) {
+                handleTypingStart();
+              } else {
+                handleTypingStop();
+              }
+            }}
+            onFocus={handleTypingStart}
+            onBlur={handleTypingStop}
+            onSubmitEditing={() => {
+              handleSendMessage();
+              handleTypingStop();
+            }}
             placeholder="Message"
             placeholderTextColor={colors.timestampText}
             multiline
             maxLength={1000}
             returnKeyType="send"
-            onSubmitEditing={handleSendMessage}
             blurOnSubmit={false}
             textAlignVertical="top"
             autoCorrect={true}
@@ -1191,6 +1325,55 @@ const styles = StyleSheet.create({
     color: colors.textDark,
     textAlign: 'center',
     fontWeight: '500',
+  },
+  // Typing Indicator Styles
+  typingIndicatorContainer: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    backgroundColor: colors.conversationBackground,
+  },
+  typingIndicator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.messageReceived,
+    borderRadius: 18,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    alignSelf: 'flex-start',
+    maxWidth: screenWidth * 0.75,
+    elevation: 1,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 1,
+    borderWidth: 1,
+    borderColor: colors.borderLight,
+  },
+  typingDots: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginRight: 8,
+  },
+  typingDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: colors.primaryBlue,
+    marginHorizontal: 1,
+  },
+  typingDot1: {
+    animationDelay: '0ms',
+  },
+  typingDot2: {
+    animationDelay: '150ms',
+  },
+  typingDot3: {
+    animationDelay: '300ms',
+  },
+  typingText: {
+    fontSize: 14,
+    color: colors.textMedium,
+    fontStyle: 'italic',
   },
 });
 

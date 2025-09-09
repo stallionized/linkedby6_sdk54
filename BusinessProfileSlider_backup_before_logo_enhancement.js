@@ -30,9 +30,6 @@ import WebRTCService from './services/WebRTCService';
 import IncomingCallModal from './components/IncomingCallModal';
 import ActiveCallScreen from './components/ActiveCallScreen';
 
-// Import web browser component
-import WebBrowserSlider from './components/WebBrowserSlider';
-
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 
 // Mobile-optimized constants - UPDATED: Full screen width
@@ -45,7 +42,7 @@ const TRUST_BULLSEYE_API_URL = 'https://trustbullseyeserver-vv6l.onrender.com';
 // Set to false to disable bullseye if causing issues
 const ENABLE_TRUST_BULLSEYE = true;
 
-// Function to generate consistent color from business name (same as SearchScreen)
+// Function to generate a consistent color from a business name
 const getColorFromName = (name) => {
   const colors = [
     '#FF5733', '#33A8FF', '#FF33A8', '#A833FF', '#33FF57',
@@ -56,80 +53,9 @@ const getColorFromName = (name) => {
   for (let i = 0; i < name.length; i++) {
     hash = name.charCodeAt(i) + ((hash << 5) - hash);
   }
+  
   const index = Math.abs(hash) % colors.length;
   return colors[index];
-};
-
-// Enhanced color extraction function (same as RecommendedBusinessesScreen and SearchScreen)
-const extractDominantColor = async (business) => {
-  try {
-    // Smart color extraction based on the business name and industry
-    const businessName = business.businessName?.toLowerCase() || '';
-    const industry = business.industry?.toLowerCase() || '';
-    
-    // Define color mappings for common business types
-    const colorMappings = {
-      // Automotive
-      'auto': '#1E3A8A', 'car': '#1E3A8A', 'automotive': '#1E3A8A', 'dealership': '#1E3A8A',
-      'leasing': '#0F172A', 'rental': '#374151',
-      
-      // Technology
-      'tech': '#3B82F6', 'software': '#3B82F6', 'digital': '#3B82F6', 'it': '#3B82F6',
-      
-      // Food & Restaurant
-      'restaurant': '#DC2626', 'food': '#DC2626', 'cafe': '#92400E', 'bakery': '#D97706',
-      
-      // Health & Medical
-      'medical': '#059669', 'health': '#059669', 'dental': '#059669', 'clinic': '#059669',
-      
-      // Finance
-      'bank': '#1E40AF', 'finance': '#1E40AF', 'insurance': '#1E40AF', 'investment': '#1E40AF',
-      
-      // Real Estate
-      'real estate': '#7C2D12', 'property': '#7C2D12', 'construction': '#92400E',
-      
-      // Retail
-      'retail': '#7C3AED', 'store': '#7C3AED', 'shop': '#7C3AED', 'boutique': '#7C3AED',
-      
-      // Services
-      'consulting': '#374151', 'service': '#374151', 'agency': '#374151',
-      
-      // Default colors for specific business names
-      'fast lane': '#0F172A', // Dark color for Fast Lane Leasing
-    };
-    
-    // Check for specific business name matches first
-    for (const [key, color] of Object.entries(colorMappings)) {
-      if (businessName.includes(key)) {
-        return color;
-      }
-    }
-    
-    // Check industry matches
-    for (const [key, color] of Object.entries(colorMappings)) {
-      if (industry.includes(key)) {
-        return color;
-      }
-    }
-    
-    // Fallback to original color generation but with better colors
-    const betterColors = [
-      '#1E3A8A', '#DC2626', '#059669', '#7C2D12', '#7C3AED',
-      '#0F172A', '#374151', '#92400E', '#1E40AF', '#BE185D'
-    ];
-    
-    let hash = 0;
-    const nameToHash = businessName || 'business';
-    for (let i = 0; i < nameToHash.length; i++) {
-      hash = nameToHash.charCodeAt(i) + ((hash << 5) - hash);
-    }
-    const index = Math.abs(hash) % betterColors.length;
-    return betterColors[index];
-    
-  } catch (error) {
-    console.log('Error extracting color, using fallback');
-    return getColorFromName(business.businessName || 'Business');
-  }
 };
 
 const BusinessProfileSlider = ({ isVisible, onClose, businessId, userId, viewSource = 'other', navigation }) => {
@@ -207,10 +133,6 @@ const BusinessProfileSlider = ({ isVisible, onClose, businessId, userId, viewSou
   const [callDuration, setCallDuration] = useState(0);
   const [isMuted, setIsMuted] = useState(false);
   const [isSpeakerOn, setIsSpeakerOn] = useState(false);
-
-  // Web browser states
-  const [showWebBrowser, setShowWebBrowser] = useState(false);
-  const [browserUrl, setBrowserUrl] = useState('');
 
   // Bullseye configuration - updated for stroke-based concentric rings
   const centerX = 150;
@@ -815,15 +737,14 @@ const BusinessProfileSlider = ({ isVisible, onClose, businessId, userId, viewSou
   
   // Extract dominant color from logo image when profileData changes
   useEffect(() => {
-    const setInitialColor = async () => {
-      if (profileData) {
-        const smartColor = await extractDominantColor(profileData);
-        setLogoBgColor(smartColor);
-      } else {
-        setLogoBgColor('#e9ecef');
-      }
-    };
-    setInitialColor();
+    if (profileData && profileData.logo) {
+      // For mobile, just use the color from name since image color extraction is complex
+      setLogoBgColor(getColorFromName(profileData.businessName));
+    } else if (profileData && profileData.businessName) {
+      setLogoBgColor(getColorFromName(profileData.businessName));
+    } else {
+      setLogoBgColor('#e9ecef');
+    }
   }, [profileData]);
 
   // Function to record profile view with detailed tracking
@@ -1087,9 +1008,15 @@ const BusinessProfileSlider = ({ isVisible, onClose, businessId, userId, viewSou
       url = 'https://' + url;
     }
     
-    // Open in internal web browser slider instead of external browser
-    setBrowserUrl(url);
-    setShowWebBrowser(true);
+    Linking.canOpenURL(url)
+      .then(supported => {
+        if (supported) {
+          Linking.openURL(url);
+        } else {
+          Alert.alert("Error", "Website URL not supported");
+        }
+      })
+      .catch(err => console.error('Error opening website:', err));
   };
   
   // Function to format day of week
@@ -2005,16 +1932,6 @@ const BusinessProfileSlider = ({ isVisible, onClose, businessId, userId, viewSou
                 console.error('Error toggling speaker:', error);
               }
             }}
-          />
-        )}
-
-        {/* Web Browser Slider */}
-        {showWebBrowser && (
-          <WebBrowserSlider
-            isVisible={showWebBrowser}
-            onClose={() => setShowWebBrowser(false)}
-            url={browserUrl}
-            businessName={profileData?.businessName}
           />
         )}
       </Animated.View>

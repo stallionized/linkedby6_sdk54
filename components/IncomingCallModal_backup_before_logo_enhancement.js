@@ -14,93 +14,6 @@ import { Ionicons } from '@expo/vector-icons';
 
 const { width, height } = Dimensions.get('window');
 
-// Function to generate consistent color from business name (same as SearchScreen)
-const getColorFromName = (name) => {
-  const colors = [
-    '#FF5733', '#33A8FF', '#FF33A8', '#A833FF', '#33FF57',
-    '#FFD433', '#FF8333', '#3357FF', '#33FFEC', '#8CFF33'
-  ];
-  
-  let hash = 0;
-  for (let i = 0; i < name.length; i++) {
-    hash = name.charCodeAt(i) + ((hash << 5) - hash);
-  }
-  const index = Math.abs(hash) % colors.length;
-  return colors[index];
-};
-
-// Enhanced color extraction function (same as RecommendedBusinessesScreen and SearchScreen)
-const extractDominantColor = async (businessName, industry) => {
-  try {
-    // Smart color extraction based on the business name and industry
-    const name = businessName?.toLowerCase() || '';
-    const ind = industry?.toLowerCase() || '';
-    
-    // Define color mappings for common business types
-    const colorMappings = {
-      // Automotive
-      'auto': '#1E3A8A', 'car': '#1E3A8A', 'automotive': '#1E3A8A', 'dealership': '#1E3A8A',
-      'leasing': '#0F172A', 'rental': '#374151',
-      
-      // Technology
-      'tech': '#3B82F6', 'software': '#3B82F6', 'digital': '#3B82F6', 'it': '#3B82F6',
-      
-      // Food & Restaurant
-      'restaurant': '#DC2626', 'food': '#DC2626', 'cafe': '#92400E', 'bakery': '#D97706',
-      
-      // Health & Medical
-      'medical': '#059669', 'health': '#059669', 'dental': '#059669', 'clinic': '#059669',
-      
-      // Finance
-      'bank': '#1E40AF', 'finance': '#1E40AF', 'insurance': '#1E40AF', 'investment': '#1E40AF',
-      
-      // Real Estate
-      'real estate': '#7C2D12', 'property': '#7C2D12', 'construction': '#92400E',
-      
-      // Retail
-      'retail': '#7C3AED', 'store': '#7C3AED', 'shop': '#7C3AED', 'boutique': '#7C3AED',
-      
-      // Services
-      'consulting': '#374151', 'service': '#374151', 'agency': '#374151',
-      
-      // Default colors for specific business names
-      'fast lane': '#0F172A', // Dark color for Fast Lane Leasing
-    };
-    
-    // Check for specific business name matches first
-    for (const [key, color] of Object.entries(colorMappings)) {
-      if (name.includes(key)) {
-        return color;
-      }
-    }
-    
-    // Check industry matches
-    for (const [key, color] of Object.entries(colorMappings)) {
-      if (ind.includes(key)) {
-        return color;
-      }
-    }
-    
-    // Fallback to original color generation but with better colors
-    const betterColors = [
-      '#1E3A8A', '#DC2626', '#059669', '#7C2D12', '#7C3AED',
-      '#0F172A', '#374151', '#92400E', '#1E40AF', '#BE185D'
-    ];
-    
-    let hash = 0;
-    const nameToHash = name || 'business';
-    for (let i = 0; i < nameToHash.length; i++) {
-      hash = nameToHash.charCodeAt(i) + ((hash << 5) - hash);
-    }
-    const index = Math.abs(hash) % betterColors.length;
-    return betterColors[index];
-    
-  } catch (error) {
-    console.log('Error extracting color, using fallback');
-    return getColorFromName(businessName || 'Business');
-  }
-};
-
 const IncomingCallModal = ({ 
   visible, 
   callerData,
@@ -110,7 +23,6 @@ const IncomingCallModal = ({
   onDecline 
 }) => {
   const [pulseAnim] = useState(new Animated.Value(1));
-  const [logoBgColor, setLogoBgColor] = useState('#0D47A1');
 
   useEffect(() => {
     if (visible) {
@@ -141,28 +53,6 @@ const IncomingCallModal = ({
       };
     }
   }, [visible, pulseAnim]);
-
-  // Extract smart color for business logo background
-  useEffect(() => {
-    const extractColor = async () => {
-      if (callerData?.callType === 'business') {
-        const businessName = callerData?.contactName || callerData?.receiverName || 'Business';
-        const industry = callerData?.industry || '';
-        
-        try {
-          const color = await extractDominantColor(businessName, industry);
-          setLogoBgColor(color);
-        } catch (error) {
-          console.log('Error extracting color:', error);
-          setLogoBgColor(getColorFromName(businessName));
-        }
-      }
-    };
-
-    if (visible && callerData) {
-      extractColor();
-    }
-  }, [visible, callerData]);
 
   const handleAccept = () => {
     Vibration.cancel();
@@ -240,10 +130,7 @@ const IncomingCallModal = ({
               { transform: [{ scale: pulseAnim }] }
             ]}
           >
-            <View style={[
-              styles.avatar, 
-              callerData?.callType === 'business' ? { backgroundColor: logoBgColor } : {}
-            ]}>
+            <View style={styles.avatar}>
               {avatarUri ? (
                 <Image 
                   source={{ uri: avatarUri }} 
@@ -252,9 +139,11 @@ const IncomingCallModal = ({
                 />
               ) : (
                 callerData?.callType === 'business' ? (
-                  <Text style={styles.businessInitials}>
-                    {getInitials(displayName)}
-                  </Text>
+                  <View style={styles.businessLogoFallback}>
+                    <Text style={styles.businessInitials}>
+                      {getInitials(displayName)}
+                    </Text>
+                  </View>
                 ) : (
                   <View style={styles.userAvatarFallback}>
                     <Ionicons name="person" size={80} color="#fff" />
