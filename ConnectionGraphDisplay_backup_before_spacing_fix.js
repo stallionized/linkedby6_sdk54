@@ -405,16 +405,16 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     paddingHorizontal: 4,
     position: 'relative',
-    maxHeight: 80, // Further increased to accommodate degrees spacing
+    maxHeight: 60, // Limit total height
   },
   compactContainer: {
     paddingVertical: 4,
     paddingHorizontal: 2,
-    maxHeight: 70, // Further increased for compact mode too
+    maxHeight: 50,
   },
   scrollView: {
     maxWidth: '100%',
-    maxHeight: 45, // Increased to give nodes more space
+    maxHeight: 40,
   },
   scrollContent: {
     paddingHorizontal: 4,
@@ -529,9 +529,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 3,
     borderRadius: 8,
-    alignItems: 'flex-end', // Move to the right
-    marginTop: 15, // Move further down
-    marginRight: 10, // Add right margin
+    alignItems: 'center',
+    marginTop: 6,
     maxHeight: 24,
   },
   degreesText: {

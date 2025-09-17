@@ -1,7 +1,6 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from './supabaseClient';
-import WebRTCService from './services/WebRTCService';
 
 const AuthContext = createContext({});
 
@@ -12,7 +11,6 @@ export const AuthProvider = ({ children }) => {
     neo4jUrl: null,
     webhookUrl: null
   });
-  const [webRTCInitialized, setWebRTCInitialized] = useState(false);
 
   useEffect(() => {
     // Check for existing session
@@ -25,14 +23,11 @@ export const AuthProvider = ({ children }) => {
         if (session?.user) {
           setUser(session.user);
           await AsyncStorage.setItem('user', JSON.stringify(session.user));
-          await ensureUserProfile(session.user); // Ensure user profile exists
           await fetchAppConfig(); // Fetch config when user logs in
-          await initializeWebRTC(session.user.id); // Initialize WebRTC service
         } else {
           setUser(null);
           await AsyncStorage.removeItem('user');
           setConfig({ neo4jUrl: null, webhookUrl: null }); // Clear config on logout
-          destroyWebRTC(); // Destroy WebRTC service on logout
         }
         setLoading(false);
       }
@@ -56,9 +51,7 @@ export const AuthProvider = ({ children }) => {
         console.log('Found active session for:', session.user.email);
         setUser(session.user);
         await AsyncStorage.setItem('user', JSON.stringify(session.user));
-        await ensureUserProfile(session.user); // Ensure user profile exists
         await fetchAppConfig(); // Fetch config for logged in user
-        await initializeWebRTC(session.user.id); // Initialize WebRTC service for existing session
       } else {
         console.log('No active session found');
         // Check AsyncStorage as fallback
@@ -124,103 +117,6 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  const initializeWebRTC = async (userId) => {
-    try {
-      if (webRTCInitialized) {
-        console.log('WebRTC already initialized');
-        return;
-      }
-
-      console.log('Initializing WebRTC service for user:', userId);
-      
-      // Set user ID first so it's available for auto-initialization
-      WebRTCService.setUserId(userId);
-      
-      // Initialize WebRTC service with callbacks
-      await WebRTCService.initialize(
-        userId,
-        (callState, callData) => {
-          console.log('Call state changed:', callState, callData);
-          // Handle call state changes globally if needed
-        },
-        (remoteStream) => {
-          console.log('Remote stream received:', remoteStream);
-          // Handle remote stream globally if needed
-        },
-        (localStream) => {
-          console.log('Local stream received:', localStream);
-          // Handle local stream globally if needed
-        }
-      );
-
-      setWebRTCInitialized(true);
-      console.log('WebRTC service initialized successfully');
-    } catch (error) {
-      console.error('Failed to initialize WebRTC service:', error);
-      setWebRTCInitialized(false);
-    }
-  };
-
-  const destroyWebRTC = () => {
-    try {
-      console.log('Destroying WebRTC service');
-      WebRTCService.destroy();
-      setWebRTCInitialized(false);
-    } catch (error) {
-      console.error('Error destroying WebRTC service:', error);
-    }
-  };
-
-  const ensureUserProfile = async (user) => {
-    try {
-      console.log('Ensuring user profile exists for:', user.email);
-      
-      // Check if user profile already exists
-      const { data: existingProfile, error: checkError } = await supabase
-        .from('user_profiles')
-        .select('user_id')
-        .eq('user_id', user.id)
-        .single();
-
-      if (checkError && checkError.code !== 'PGRST116') {
-        console.error('Error checking user profile:', checkError);
-        return;
-      }
-
-      if (existingProfile) {
-        console.log('User profile already exists');
-        return existingProfile;
-      }
-
-      // Create user profile if it doesn't exist
-      console.log('Creating user profile for:', user.email);
-      const { data: newProfile, error: createError } = await supabase
-        .from('user_profiles')
-        .insert({
-          user_id: user.id,
-          full_name: user.user_metadata?.full_name || user.email.split('@')[0],
-          user_phone_number: user.user_metadata?.phone || null,
-          profile_image_url: null,
-          is_admin: false,
-          role: 'standard_user',
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
-        })
-        .select()
-        .single();
-
-      if (createError) {
-        console.error('Error creating user profile:', createError);
-        return;
-      }
-
-      console.log('User profile created successfully:', newProfile);
-      return newProfile;
-    } catch (error) {
-      console.error('Error ensuring user profile:', error);
-    }
-  };
-
   const signIn = async (email, password) => {
     try {
       console.log('Attempting to sign in:', email);
@@ -238,9 +134,7 @@ export const AuthProvider = ({ children }) => {
         console.log('Sign in successful for:', data.user.email);
         setUser(data.user);
         await AsyncStorage.setItem('user', JSON.stringify(data.user));
-        await ensureUserProfile(data.user); // Ensure user profile exists
         await fetchAppConfig(); // Fetch config after successful login
-        await initializeWebRTC(data.user.id); // Initialize WebRTC service after login
         return { success: true, user: data.user };
       }
       
@@ -269,7 +163,6 @@ export const AuthProvider = ({ children }) => {
       user,
       loading,
       config,
-      webRTCInitialized,
       signIn,
       signOut,
       checkUserSession,

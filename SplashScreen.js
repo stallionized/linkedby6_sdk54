@@ -5,14 +5,30 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 
-const SplashScreen = ({ onFinish }) => {
-  console.log("SplashScreen mounted");
+const SplashScreen = ({ onFinish, loading = true }) => {
+  console.log("SplashScreen mounted, loading:", loading);
   // Create animated value for opacity
   const fadeAnim = React.useRef(new Animated.Value(1)).current;
+  const [minTimeElapsed, setMinTimeElapsed] = React.useState(false);
 
   useEffect(() => {
-    // After 3 seconds, fade out the splash screen
-    const timer = setTimeout(() => {
+    // Ensure minimum display time of 2 seconds for good UX
+    const minTimer = setTimeout(() => {
+      console.log("SplashScreen minimum time elapsed");
+      setMinTimeElapsed(true);
+    }, 2000);
+
+    return () => clearTimeout(minTimer);
+  }, []);
+
+  useEffect(() => {
+    // Only proceed when both conditions are met:
+    // 1. Authentication loading is complete (!loading)
+    // 2. Minimum display time has elapsed (minTimeElapsed)
+    if (!loading && minTimeElapsed) {
+      console.log("SplashScreen ready to finish - auth loaded and min time elapsed");
+      
+      // Start fade out animation
       Animated.timing(fadeAnim, {
         toValue: 0,
         duration: 1000, // 1 second fade out
@@ -20,15 +36,12 @@ const SplashScreen = ({ onFinish }) => {
       }).start(() => {
         // Call onFinish callback when animation is complete
         if (onFinish) {
-          console.log("SplashScreen finished, navigating to Landing");
+          console.log("SplashScreen finished, proceeding to app");
           onFinish();
         }
       });
-    }, 3000); // 3 seconds delay
-
-    // Clear timeout on unmount
-    return () => clearTimeout(timer);
-  }, [fadeAnim, onFinish]);
+    }
+  }, [loading, minTimeElapsed, fadeAnim, onFinish]);
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>

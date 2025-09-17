@@ -41,10 +41,10 @@ const BusinessPricingScreen = ({ navigation }) => {
     console.log('*** selectedPlan state changed to:', selectedPlan);
   }, [selectedPlan]);
 
-  // Complete pricing tiers with all features - Updated with correct Stripe plan IDs
+  // Complete pricing tiers with all features (from original)
   const TIERS = [
     {
-      id: "essential-monthly-plan", // Updated to match Stripe product
+      id: "essential",
       name: "Essential",
       price: {
         monthly: 49,
@@ -60,14 +60,9 @@ const BusinessPricingScreen = ({ navigation }) => {
         "Account Manager: No",
       ],
       cta: "Select Plan",
-      // Map to different plan IDs based on billing cycle
-      stripeIds: {
-        monthly: "essential-monthly-plan",
-        yearly: "essential-annual-plan"
-      }
     },
     {
-      id: "growth-monthly-plan", // Updated to match Stripe product
+      id: "growth",
       name: "Growth",
       price: {
         monthly: 99,
@@ -84,14 +79,9 @@ const BusinessPricingScreen = ({ navigation }) => {
       ],
       cta: "Select Plan",
       popular: true,
-      // Map to different plan IDs based on billing cycle
-      stripeIds: {
-        monthly: "growth-monthly-plan",
-        yearly: "growth-annual-plan"
-      }
     },
     {
-      id: "pro/enterprise-monthly-plan", // Updated to match Stripe product
+      id: "pro-enterprise",
       name: "Pro/Enterprise",
       price: {
         monthly: 199,
@@ -107,11 +97,6 @@ const BusinessPricingScreen = ({ navigation }) => {
         "Account Manager: Yes",
       ],
       cta: "Select Plan",
-      // Map to different plan IDs based on billing cycle
-      stripeIds: {
-        monthly: "pro/enterprise-monthly-plan",
-        yearly: "pro/enterprise-annual-plan"
-      }
     },
   ];
 
@@ -149,12 +134,8 @@ const BusinessPricingScreen = ({ navigation }) => {
     console.log('Plan found, proceeding with navigation...');
     console.log('Navigation object exists:', !!navigation);
     
-    // Get the correct Stripe plan ID based on billing cycle
-    const stripePlanId = plan.stripeIds[selectedFrequency];
-    console.log('Using Stripe plan ID:', stripePlanId, 'for frequency:', selectedFrequency);
-    
     const navigationData = {
-      planId: stripePlanId, // Use the correct Stripe plan ID
+      planId: plan.id,
       planName: plan.name,
       planPrice: plan.price[selectedFrequency],
       billingCycle: selectedFrequency,

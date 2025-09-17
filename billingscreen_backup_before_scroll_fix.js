@@ -10,7 +10,6 @@ import {
   SafeAreaView,
   Platform,
   TextInput,
-  KeyboardAvoidingView,
 } from 'react-native';
 import { 
   StripeProvider, 
@@ -28,86 +27,30 @@ import Constants from 'expo-constants';
 import * as Linking from 'expo-linking';
 
 // Stripe configuration
-// Using your actual Stripe test publishable key
-const STRIPE_PUBLISHABLE_KEY = 'pk_test_51RXw4A4RjCM7xxHpmmL3YVOHgzKjgdKIzCBgIepx1fvnicwq0FdWpkFuKdzf4lTbwvy5P7Rf6Az4tITEMOHTWSos00ru9ufZxO';
+const STRIPE_PUBLISHABLE_KEY = 'pk_test_51RXw4A4RjCM7xxHpvdyxvP5OqfOsL80xdsp6217MWItGmJ6IYNa4M7WxVnvZmdprZBy9jbGQ6q5oMkMj0sDWceoV00DgmppGMz';
 
-// Use the Render webhook server URL
-const STRIPE_SERVER_URL = 'https://stripeserver-production.onrender.com';
+// Get Stripe server URL from app.json
+const STRIPE_SERVER_URL = Constants.expoConfig?.extra?.stripeServerUrl || 'https://stripeserver-2w6d.onrender.com';
 
 // URL Scheme for redirects
 const URL_SCHEME = Constants.appOwnership === 'expo' 
   ? Linking.createURL('/--/') 
   : Linking.createURL('');
 
-// Dynamic product catalog - fetched from webhook server
-let DYNAMIC_PRODUCT_CATALOG = null;
-
-// Function to fetch dynamic product catalog from webhook server
-const fetchProductCatalog = async () => {
-  try {
-    console.log('Fetching dynamic product catalog from:', `${STRIPE_SERVER_URL}/products`);
-    const response = await fetch(`${STRIPE_SERVER_URL}/products`);
-    
-    if (!response.ok) {
-      throw new Error(`Failed to fetch products: ${response.status}`);
-    }
-    
-    const catalog = await response.json();
-    console.log('Dynamic product catalog loaded:', catalog);
-    DYNAMIC_PRODUCT_CATALOG = catalog;
-    return catalog;
-  } catch (error) {
-    console.error('Error fetching product catalog:', error);
-    throw error;
-  }
-};
-
-// Function to get price ID from dynamic catalog
-const getPriceIdFromCatalog = (planId, billingCycle) => {
-  if (!DYNAMIC_PRODUCT_CATALOG) {
-    throw new Error('Product catalog not loaded. Please try again.');
-  }
-  
-  console.log('Looking for planId:', planId, 'billingCycle:', billingCycle);
-  console.log('Available catalog structure:', DYNAMIC_PRODUCT_CATALOG);
-  
-  // The webhook server returns { products: [...], lastUpdated: ... }
-  const products = DYNAMIC_PRODUCT_CATALOG.products;
-  
-  if (!products || !Array.isArray(products)) {
-    console.error('Invalid catalog structure - products not found or not an array:', DYNAMIC_PRODUCT_CATALOG);
-    throw new Error('Invalid product catalog structure. Please refresh and try again.');
-  }
-  
-  // Find the product with matching planId
-  const product = products.find(p => p.planId === planId);
-  
-  if (!product) {
-    console.error(`Product not found for planId: ${planId}`);
-    console.log('Available products:', products.map(p => ({ planId: p.planId, name: p.name })));
-    throw new Error(`Product not found: ${planId}`);
-  }
-  
-  console.log('Found product:', product);
-  
-  if (!product.prices) {
-    console.error('Product has no prices:', product);
-    throw new Error(`No prices available for plan: ${planId}`);
-  }
-  
-  // Get the price for the billing cycle
-  const priceInfo = product.prices[billingCycle];
-  
-  if (!priceInfo) {
-    console.error(`No price found for billing cycle: ${billingCycle}`);
-    console.log('Available billing cycles:', Object.keys(product.prices));
-    throw new Error(`No ${billingCycle} price found for plan: ${planId}`);
-  }
-  
-  const priceId = priceInfo.priceId;
-  console.log(`Found price ID for ${planId} (${billingCycle}):`, priceId);
-  
-  return priceId;
+// Stripe Price IDs for each plan (you'll need to create these in your Stripe dashboard)
+const STRIPE_PRICE_IDS = {
+  essential: {
+    monthly: 'price_essential_monthly', // Replace with actual Stripe price ID
+    yearly: 'price_essential_yearly',   // Replace with actual Stripe price ID
+  },
+  growth: {
+    monthly: 'price_growth_monthly',    // Replace with actual Stripe price ID
+    yearly: 'price_growth_yearly',      // Replace with actual Stripe price ID
+  },
+  'pro-enterprise': {
+    monthly: 'price_pro_monthly',       // Replace with actual Stripe price ID
+    yearly: 'price_pro_yearly',         // Replace with actual Stripe price ID
+  },
 };
 
 const colors = {
@@ -616,17 +559,8 @@ const PaymentForm = ({
     setTimeout(checkPaymentMethods, 100);
   }, []);
 
-  // Handle card payment - Direct server integration
+  // Handle card payment
   const handleCardPayment = async () => {
-    console.log('Starting card payment process...');
-    console.log('Calling Render server directly:', STRIPE_SERVER_URL);
-    
-    if (!currentUser) {
-      console.error('User not authenticated');
-      Alert.alert('Authentication Required', 'Please log in to continue payment.');
-      return;
-    }
-
     if (!cardComplete) {
       Alert.alert('Incomplete Card', 'Please complete your card information');
       return;
@@ -635,65 +569,25 @@ const PaymentForm = ({
     setLoading(true);
     
     try {
-      console.log('User authenticated, proceeding with payment for:', currentUser.email);
+      console.log('Starting card payment process...');
       
-      // Get price ID from dynamic catalog
-      const priceId = getPriceIdFromCatalog(planId, billingCycle);
-      console.log('Using price ID:', priceId);
-
-      // Step 1: Create payment intent on Render server
-      console.log('Creating payment intent on server...');
-      const paymentIntentResponse = await fetch(`${STRIPE_SERVER_URL}/create-payment-intent`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          amount: planPrice * 100, // Convert to cents
-          currency: 'usd',
-          email: currentUser.email,
-          userId: currentUser.id,
-          planId: planId,
-          planName: planName,
-          billingCycle: billingCycle,
-          priceId: priceId,
-        }),
-      });
-
-      if (!paymentIntentResponse.ok) {
-        const errorData = await paymentIntentResponse.json();
-        console.error('Payment intent creation failed:', errorData);
-        throw new Error(errorData.error || 'Failed to create payment intent');
-      }
-
-      const { clientSecret } = await paymentIntentResponse.json();
-      console.log('Payment intent created, client secret received');
-
-      // Step 2: Confirm payment with Stripe
-      console.log('Confirming payment with Stripe...');
-      const { error: confirmError } = await confirmPayment(clientSecret, {
+      // Step 1: Create payment method
+      const { paymentMethod, error: pmError } = await createPaymentMethod({
         paymentMethodType: 'Card',
         paymentMethodData: {
           billingDetails: {
             email: currentUser.email,
-            ...(billingDetails?.name && { name: billingDetails.name }),
-            ...(billingDetails?.address && { address: billingDetails.address }),
           },
         },
       });
 
-      if (confirmError) {
-        console.error('Payment confirmation error:', confirmError);
-        throw new Error(confirmError.message || 'Payment confirmation failed');
+      if (pmError) {
+        console.error('Payment method creation error:', pmError);
+        throw new Error(pmError.message || 'Failed to create payment method');
       }
 
-      console.log('Payment confirmed successfully!');
-      
-      // Step 3: Update database after successful payment
-      await updateDatabase({
-        subscriptionId: 'card_payment_subscription',
-        customerId: 'card_payment_customer',
-      });
+      console.log('Payment method created:', paymentMethod.id);
+      await processSubscription(paymentMethod.id);
 
     } catch (error) {
       console.error('Card payment error:', error);
@@ -710,8 +604,10 @@ const PaymentForm = ({
     try {
       console.log('Starting platform pay process...');
       
-      // Get price ID from dynamic catalog
-      const priceId = getPriceIdFromCatalog(planId, billingCycle);
+      const priceId = STRIPE_PRICE_IDS[planId]?.[billingCycle];
+      if (!priceId) {
+        throw new Error(`No Stripe price ID found for plan: ${planId} (${billingCycle})`);
+      }
 
       // Create payment intent on backend first
       const paymentIntentResponse = await fetch(`${STRIPE_SERVER_URL}/create-payment-intent`, {
@@ -786,302 +682,102 @@ const PaymentForm = ({
 
   // Process subscription creation (now handles customer creation on-demand)
   const processSubscription = async (paymentMethodId) => {
-    // Get price ID from dynamic catalog
-    const priceId = getPriceIdFromCatalog(planId, billingCycle);
+    const priceId = STRIPE_PRICE_IDS[planId]?.[billingCycle];
+    if (!priceId) {
+      throw new Error(`No Stripe price ID found for plan: ${planId} (${billingCycle})`);
+    }
 
     console.log('Creating subscription with price ID:', priceId);
-    console.log('Using server URL:', STRIPE_SERVER_URL);
 
-    try {
-      // Customer creation and subscription happens server-side during payment
-      const subscriptionResponse = await fetch(`${STRIPE_SERVER_URL}/create-subscription`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-        },
-        body: JSON.stringify({
-          email: currentUser.email,
-          paymentMethodId: paymentMethodId,
-          priceId: priceId,
-          userId: currentUser.id,
-          planId: planId,
-          planName: planName,
-          billingCycle: billingCycle,
-          // Let server handle customer creation if needed
-          createCustomerIfNeeded: true,
-        }),
+    // Customer creation and subscription happens server-side during payment
+    const subscriptionResponse = await fetch(`${STRIPE_SERVER_URL}/create-subscription`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        email: currentUser.email,
+        paymentMethodId: paymentMethodId,
+        priceId: priceId,
+        userId: currentUser.id,
+        planId: planId,
+        planName: planName,
+        billingCycle: billingCycle,
+        // Let server handle customer creation if needed
+        createCustomerIfNeeded: true,
+      }),
+    });
+
+    if (!subscriptionResponse.ok) {
+      const errorData = await subscriptionResponse.json();
+      console.error('Subscription creation error:', errorData);
+      throw new Error(errorData.error || 'Failed to create subscription');
+    }
+
+    const subscriptionData = await subscriptionResponse.json();
+    console.log('Subscription response:', subscriptionData);
+
+    // Handle payment confirmation if needed
+    if (subscriptionData.clientSecret) {
+      console.log('Confirming payment with client secret...');
+      
+      const { error: confirmError } = await confirmPayment(subscriptionData.clientSecret, {
+        paymentMethodType: 'Card',
       });
 
-      console.log('Subscription response status:', subscriptionResponse.status);
-      console.log('Subscription response headers:', subscriptionResponse.headers);
-
-      // Check if response is actually JSON
-      const contentType = subscriptionResponse.headers.get('content-type');
-      if (!contentType || !contentType.includes('application/json')) {
-        const textResponse = await subscriptionResponse.text();
-        console.error('Server returned non-JSON response:', textResponse);
-        throw new Error('Server is currently unavailable. Please try again later or contact support.');
+      if (confirmError) {
+        console.error('Payment confirmation error:', confirmError);
+        throw new Error(confirmError.message || 'Payment confirmation failed');
       }
-
-      if (!subscriptionResponse.ok) {
-        let errorData;
-        try {
-          errorData = await subscriptionResponse.json();
-        } catch (parseError) {
-          console.error('Failed to parse error response:', parseError);
-          throw new Error(`Server error (${subscriptionResponse.status}). Please try again later.`);
-        }
-        console.error('Subscription creation error:', errorData);
-        throw new Error(errorData.error || `Failed to create subscription (${subscriptionResponse.status})`);
-      }
-
-      const subscriptionData = await subscriptionResponse.json();
-      console.log('Subscription response:', subscriptionData);
-
-      // Handle payment confirmation if needed
-      if (subscriptionData.clientSecret) {
-        console.log('Confirming payment with client secret...');
-        
-        const { error: confirmError } = await confirmPayment(subscriptionData.clientSecret, {
-          paymentMethodType: 'Card',
-        });
-
-        if (confirmError) {
-          console.error('Payment confirmation error:', confirmError);
-          throw new Error(confirmError.message || 'Payment confirmation failed');
-        }
-      }
-
-      await updateDatabase(subscriptionData);
-
-    } catch (error) {
-      console.error('processSubscription error:', error);
-      
-      // If it's a network error or server unavailable, provide helpful message
-      if (error.message.includes('JSON Parse error') || 
-          error.message.includes('Unexpected character') ||
-          error.name === 'TypeError' && error.message.includes('fetch')) {
-        throw new Error('Unable to connect to payment server. Please check your internet connection and try again.');
-      }
-      
-      // Re-throw the error as-is if it's already a user-friendly message
-      throw error;
     }
+
+    await updateDatabase(subscriptionData);
   };
 
-  // Create subscription after platform payment - FIXED VERSION
+  // Create subscription after platform payment
   const createSubscriptionAfterPayment = async () => {
-    console.log('Starting platform payment database update...');
-    
+    // Update local database
     try {
-      // Step 1: Check if business profile already exists
-      const { data: existingProfile, error: fetchError } = await supabase
+      await supabase
         .from('business_profiles')
-        .select('*')
-        .eq('user_id', currentUser.id)
-        .single();
-
-      if (fetchError && fetchError.code !== 'PGRST116') {
-        console.error('Platform payment: Error checking existing profile:', fetchError);
-        throw fetchError;
-      }
-
-      // Step 2: Prepare business profile update with required fields
-      const businessProfileUpdate = {
-        user_id: currentUser.id,
-        business_status: 'Active',  // Set to Active enum value (key fix!)
-        is_active: true,           // Set to true (key fix!)
-        updated_at: new Date().toISOString(),
-      };
-
-      // If no existing profile, create minimal profile (business_id will be auto-generated)
-      if (!existingProfile) {
-        console.log('Platform payment: No existing profile found, creating business profile for subscription activation');
-        businessProfileUpdate.created_at = new Date().toISOString();
-        // Don't set business_id (auto-generated), entity_type or business_name - let user fill these out later
-      }
-
-      console.log('Platform payment: Updating business_profiles with:', businessProfileUpdate);
-
-      const { data: businessProfileData, error: profileError } = await supabase
-        .from('business_profiles')
-        .upsert(businessProfileUpdate, {
-          onConflict: 'user_id',
-          ignoreDuplicates: false
-        })
-        .select()
-        .single();
-
-      if (profileError) {
-        console.error('Platform payment: Business profile update error:', profileError);
-        throw profileError;
-      }
-
-      console.log('Platform payment: Business profile updated successfully:', businessProfileData);
-
-      // Create business subscription record if we have a business_id
-      if (businessProfileData && businessProfileData.business_id) {
-        const subscriptionRecord = {
-          business_id: businessProfileData.business_id,
-          plan_id: planId,
-          status: 'active',
-          billing_cycle: billingCycle,
+        .upsert({
           user_id: currentUser.id,
-          start_date: new Date().toISOString(),
-          next_billing_date: calculateNextBillingDate(billingCycle),
-          current_period_start: new Date().toISOString(),
-          current_period_end: calculateNextBillingDate(billingCycle),
-        };
-
-        console.log('Platform payment: Creating business_subscriptions record:', subscriptionRecord);
-
-        const { data: subscriptionRecordData, error: subscriptionError } = await supabase
-          .from('business_subscriptions')
-          .upsert(subscriptionRecord, {
-            onConflict: 'business_id',
-            ignoreDuplicates: false
-          })
-          .select()
-          .single();
-
-        if (subscriptionError) {
-          console.warn('Platform payment: Business subscription record creation failed:', subscriptionError);
-        } else {
-          console.log('Platform payment: Business subscription record created successfully:', subscriptionRecordData);
-        }
-      }
+          subscription_status: 'active',
+          plan_id: planId,
+          plan_name: planName,
+          billing_cycle: billingCycle,
+          updated_at: new Date().toISOString(),
+        });
       
-      console.log('Platform payment: Database update completed successfully!');
+      console.log('Database updated successfully');
     } catch (dbError) {
-      console.error('Platform payment: Database update failed:', dbError);
-      console.warn('Platform payment: Continuing despite database error as payment was successful');
+      console.warn('Database update failed:', dbError);
     }
 
     console.log('Platform payment completed successfully!');
     onPaymentSuccess({ subscriptionId: 'platform_pay_subscription' });
   };
 
-  // Helper function to calculate next billing date
-  const calculateNextBillingDate = (billingCycle) => {
-    const now = new Date();
-    if (billingCycle === 'yearly') {
-      return new Date(now.getFullYear() + 1, now.getMonth(), now.getDate()).toISOString();
-    } else {
-      return new Date(now.getFullYear(), now.getMonth() + 1, now.getDate()).toISOString();
-    }
-  };
-
-  // Update database after successful payment - MINIMAL VERSION (no master_neo4j population)
+  // Update database after successful payment
   const updateDatabase = async (subscriptionData) => {
-    console.log('Starting minimal database update for subscription activation...');
-    
     try {
-      // Step 1: Check if business profile already exists
-      const { data: existingProfile, error: fetchError } = await supabase
+      await supabase
         .from('business_profiles')
-        .select('*')
-        .eq('user_id', currentUser.id)
-        .single();
-
-      if (fetchError && fetchError.code !== 'PGRST116') {
-        console.error('Error checking existing profile:', fetchError);
-        throw fetchError;
-      }
-
-      // Step 2: Prepare MINIMAL business profile update - only subscription activation fields
-      const businessProfileUpdate = {
-        user_id: currentUser.id,
-        business_status: 'Active',  // Set to Active enum value to enable access
-        is_active: true,           // Set to true to enable access
-        stripe_customer_id: subscriptionData.customerId,
-        updated_at: new Date().toISOString(),
-      };
-
-      // If no existing profile, create minimal profile for subscription activation only
-      if (!existingProfile) {
-        console.log('Creating minimal business profile for subscription activation (no master_neo4j population)');
-        businessProfileUpdate.created_at = new Date().toISOString();
-        // IMPORTANT: Don't set business_id, entity_type, business_name, or any fields that trigger master_neo4j population
-        // These will be set later when user completes their business profile information
-      }
-
-      console.log('Updating business_profiles with minimal data:', businessProfileUpdate);
-
-      // Use a direct update to avoid triggers that populate master_neo4j
-      let businessProfileData;
-      if (existingProfile) {
-        // Update existing profile
-        const { data, error: updateError } = await supabase
-          .from('business_profiles')
-          .update(businessProfileUpdate)
-          .eq('user_id', currentUser.id)
-          .select()
-          .single();
-        
-        if (updateError) {
-          console.error('Business profile update error:', updateError);
-          throw updateError;
-        }
-        businessProfileData = data;
-      } else {
-        // Insert new minimal profile
-        const { data, error: insertError } = await supabase
-          .from('business_profiles')
-          .insert(businessProfileUpdate)
-          .select()
-          .single();
-        
-        if (insertError) {
-          console.error('Business profile insert error:', insertError);
-          throw insertError;
-        }
-        businessProfileData = data;
-      }
-
-      console.log('Business profile updated successfully (minimal activation):', businessProfileData);
-
-      // Step 3: Create business subscription record only if we have a business_id
-      if (businessProfileData && businessProfileData.business_id) {
-        const subscriptionRecord = {
-          business_id: businessProfileData.business_id,
-          plan_id: planId,
-          status: 'active',
-          stripe_subscription_id: subscriptionData.subscriptionId,
-          stripe_customer_id: subscriptionData.customerId,
-          billing_cycle: billingCycle,
+        .upsert({
           user_id: currentUser.id,
-          start_date: new Date().toISOString(),
-          next_billing_date: calculateNextBillingDate(billingCycle),
-          current_period_start: new Date().toISOString(),
-          current_period_end: calculateNextBillingDate(billingCycle),
-        };
-
-        console.log('Creating business_subscriptions record:', subscriptionRecord);
-
-        const { data: subscriptionRecordData, error: subscriptionError } = await supabase
-          .from('business_subscriptions')
-          .insert(subscriptionRecord)
-          .select()
-          .single();
-
-        if (subscriptionError) {
-          console.warn('Business subscription record creation failed:', subscriptionError);
-          // Don't throw error here as the main profile update succeeded
-        } else {
-          console.log('Business subscription record created successfully:', subscriptionRecordData);
-        }
-      } else {
-        console.log('No business_id generated yet, subscription record will be created when profile is completed');
-      }
+          stripe_customer_id: subscriptionData.customerId,
+          subscription_id: subscriptionData.subscriptionId,
+          subscription_status: 'active',
+          plan_id: planId,
+          plan_name: planName,
+          billing_cycle: billingCycle,
+          updated_at: new Date().toISOString(),
+        });
       
-      console.log('Minimal database update completed successfully!');
-      console.log('Note: master_neo4j will be populated when user completes business profile information');
-      
+      console.log('Database updated successfully');
     } catch (dbError) {
-      console.error('Database update failed:', dbError);
-      // Continue anyway as payment was successful, but log the error
-      console.warn('Continuing despite database error as payment was successful');
+      console.warn('Database update failed:', dbError);
+      // Continue anyway as payment was successful
     }
 
     console.log('Payment completed successfully!');
@@ -1135,10 +831,6 @@ const PaymentForm = ({
           <CardPaymentForm
             onCardComplete={setCardComplete}
             onCardError={setCardError}
-            onBillingDetailsChange={(details) => {
-              setBillingDetails(details);
-              console.log('Billing details updated:', details);
-            }}
           />
         ) : (
           <PlatformPayForm
@@ -1198,19 +890,31 @@ const BillingScreen = ({ navigation, route }) => {
     isNewSubscription 
   } = route?.params || {};
 
+  const [loading, setLoading] = useState(true);
   const [currentUser, setCurrentUser] = useState(null);
-  const [initializationStatus, setInitializationStatus] = useState({
-    userAuth: false,
-    stripeReady: false,
-    catalogLoaded: false,
-    error: null
-  });
+  const [error, setError] = useState(null);
 
-  // Immediate user authentication - critical for form display
+  // Fast initialization - only essential operations
   useEffect(() => {
-    const authenticateUser = async () => {
+    let isMounted = true;
+    let initializationTimeout;
+
+    const quickInitialize = async () => {
       try {
+        console.log('Starting billing screen initialization...');
+        
+        // Set a timeout to prevent hanging
+        initializationTimeout = setTimeout(() => {
+          if (isMounted) {
+            console.warn('Initialization timeout - proceeding anyway');
+            setLoading(false);
+          }
+        }, 5000); // 5 second timeout
+
+        // Get user first (fastest operation)
         const { data: { user }, error: authError } = await supabase.auth.getUser();
+        
+        if (!isMounted) return;
         
         if (authError || !user) {
           console.log('Authentication error:', authError);
@@ -1225,77 +929,46 @@ const BillingScreen = ({ navigation, route }) => {
 
         setCurrentUser(user);
         console.log('User authenticated:', user.email);
-        setInitializationStatus(prev => ({ ...prev, userAuth: true }));
+
+        // Initialize Stripe with error handling
+        try {
+          await initStripe({
+            publishableKey: STRIPE_PUBLISHABLE_KEY,
+            urlScheme: URL_SCHEME,
+            merchantIdentifier: 'merchant.com.linkedbysix.app',
+          });
+          console.log('Stripe initialized successfully');
+        } catch (stripeError) {
+          console.warn('Stripe initialization failed, continuing anyway:', stripeError);
+          // Continue without Stripe - the form will still work for basic functionality
+        }
+
+        if (isMounted) {
+          console.log('Initialization complete');
+          clearTimeout(initializationTimeout);
+          setLoading(false);
+        }
         
       } catch (error) {
-        console.error('Authentication error:', error);
-        setInitializationStatus(prev => ({ 
-          ...prev, 
-          error: 'Authentication failed. Please try again.' 
-        }));
+        console.error('Initialization error:', error);
+        if (isMounted) {
+          setError('Failed to initialize payment system');
+          clearTimeout(initializationTimeout);
+          setLoading(false);
+        }
       }
     };
 
-    authenticateUser();
-  }, [navigation]);
+    quickInitialize();
 
-  // Background initialization - non-blocking
-  useEffect(() => {
-    if (!currentUser) return;
-
-    let isMounted = true;
-
-    const backgroundInitialize = async () => {
-      console.log('Starting background initialization...');
-      
-      // Initialize Stripe in background
-      try {
-        await initStripe({
-          publishableKey: STRIPE_PUBLISHABLE_KEY,
-          urlScheme: URL_SCHEME,
-          merchantIdentifier: 'merchant.com.linkedbysix.app',
-        });
-        
-        if (isMounted) {
-          console.log('Stripe initialized successfully');
-          setInitializationStatus(prev => ({ ...prev, stripeReady: true }));
-        }
-      } catch (stripeError) {
-        console.warn('Stripe initialization failed:', stripeError);
-        if (isMounted) {
-          setInitializationStatus(prev => ({ 
-            ...prev, 
-            error: 'Payment system initialization failed. Some features may be limited.' 
-          }));
-        }
-      }
-
-      // Load product catalog in background
-      try {
-        await fetchProductCatalog();
-        if (isMounted) {
-          console.log('Product catalog loaded successfully');
-          setInitializationStatus(prev => ({ ...prev, catalogLoaded: true }));
-        }
-      } catch (catalogError) {
-        console.warn('Product catalog loading failed:', catalogError);
-        if (isMounted) {
-          setInitializationStatus(prev => ({ 
-            ...prev, 
-            error: 'Product catalog loading failed. Please refresh if payment fails.' 
-          }));
-        }
-      }
-
-      console.log('Background initialization complete');
-    };
-
-    backgroundInitialize();
-
+    // Cleanup function
     return () => {
       isMounted = false;
+      if (initializationTimeout) {
+        clearTimeout(initializationTimeout);
+      }
     };
-  }, [currentUser]);
+  }, [navigation]);
 
   // Handle successful payment
   const handlePaymentSuccess = (subscriptionData) => {
@@ -1318,20 +991,50 @@ const BillingScreen = ({ navigation, route }) => {
 
   // Handle payment error
   const handlePaymentError = (errorMessage) => {
-    setInitializationStatus(prev => ({ ...prev, error: errorMessage }));
+    setError(errorMessage);
     Alert.alert('Payment Failed', errorMessage, [
       {
         text: 'Try Again',
-        onPress: () => setInitializationStatus(prev => ({ ...prev, error: null }))
+        onPress: () => setError(null)
       }
     ]);
   };
 
-  // Show form immediately if we have plan data, even without full initialization
-  const canShowForm = planId && planName && planPrice && billingCycle;
-  
-  // Only block rendering if we don't have basic plan data or user auth failed critically
-  if (!canShowForm) {
+  // Retry initialization
+  const handleRetry = () => {
+    setError(null);
+    setLoading(true);
+    // Re-run initialization
+    setTimeout(() => {
+      setLoading(false);
+    }, 1000);
+  };
+
+  // Loading state
+  if (loading) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <MobileHeader 
+          navigation={navigation} 
+          title="Payment" 
+          showBackButton={true} 
+        />
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={colors.primaryBlue} />
+          <Text style={styles.loadingText}>
+            Setting up payment options...
+          </Text>
+          <Text style={styles.loadingSubtext}>
+            This should only take a moment
+          </Text>
+        </View>
+        <MobileBottomNavigation navigation={navigation} activeRoute="Billing" />
+      </SafeAreaView>
+    );
+  }
+
+  // Error state
+  if (error) {
     return (
       <SafeAreaView style={styles.container}>
         <MobileHeader 
@@ -1340,15 +1043,13 @@ const BillingScreen = ({ navigation, route }) => {
           showBackButton={true} 
         />
         <View style={styles.errorContainer}>
-          <Text style={styles.errorText}>⚠️ Missing Plan Information</Text>
-          <Text style={styles.errorSubtext}>
-            Please go back and select a plan to continue.
-          </Text>
+          <Text style={styles.errorText}>⚠️ Setup Error</Text>
+          <Text style={styles.errorSubtext}>{error}</Text>
           <TouchableOpacity 
             style={styles.retryButton}
-            onPress={() => navigation.goBack()}
+            onPress={handleRetry}
           >
-            <Text style={styles.retryButtonText}>Go Back</Text>
+            <Text style={styles.retryButtonText}>Try Again</Text>
           </TouchableOpacity>
         </View>
         <MobileBottomNavigation navigation={navigation} activeRoute="Billing" />
@@ -1366,61 +1067,35 @@ const BillingScreen = ({ navigation, route }) => {
           showBackButton={true} 
         />
         
-        <KeyboardAvoidingView 
-          style={styles.keyboardAvoidingView}
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-          keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
+        <ScrollView 
+          style={styles.scrollContainer}
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={false}
         >
-          <ScrollView 
-            style={styles.scrollContainer}
-            contentContainerStyle={styles.scrollContent}
-            showsVerticalScrollIndicator={false}
-            keyboardShouldPersistTaps="handled"
-            bounces={true}
-            alwaysBounceVertical={false}
-          >
-            {/* Header */}
-            <View style={styles.headerContainer}>
-              <Text style={styles.pageTitle}>Complete Your Subscription</Text>
-              <Text style={styles.pageSubtitle}>
-                Choose your preferred payment method
-              </Text>
-            </View>
+          {/* Header */}
+          <View style={styles.headerContainer}>
+            <Text style={styles.pageTitle}>Complete Your Subscription</Text>
+            <Text style={styles.pageSubtitle}>
+              Choose your preferred payment method
+            </Text>
+          </View>
 
-            {/* Initialization Status Banner */}
-            {initializationStatus.error && (
-              <View style={styles.statusBanner}>
-                <Text style={styles.statusBannerText}>
-                  ⚠️ {initializationStatus.error}
-                </Text>
-              </View>
-            )}
-
-            {!initializationStatus.stripeReady && !initializationStatus.error && (
-              <View style={styles.statusBanner}>
-                <ActivityIndicator size="small" color={colors.primaryBlue} />
-                <Text style={styles.statusBannerText}>
-                  Setting up payment options...
-                </Text>
-              </View>
-            )}
-
-            {/* Payment Form - Show immediately with plan data */}
+          {/* Payment Form */}
+          {currentUser && (
             <PaymentForm
               planId={planId}
               planName={planName}
               planPrice={planPrice}
               billingCycle={billingCycle}
               currentUser={currentUser}
-              initializationStatus={initializationStatus}
               onPaymentSuccess={handlePaymentSuccess}
               onPaymentError={handlePaymentError}
             />
+          )}
 
-            {/* Bottom padding */}
-            <View style={styles.bottomPadding} />
-          </ScrollView>
-        </KeyboardAvoidingView>
+          {/* Bottom padding */}
+          <View style={styles.bottomPadding} />
+        </ScrollView>
         
         <MobileBottomNavigation navigation={navigation} activeRoute="Billing" />
       </SafeAreaView>
@@ -1433,15 +1108,11 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.backgroundGray,
   },
-  keyboardAvoidingView: {
-    flex: 1,
-  },
   scrollContainer: {
     flex: 1,
   },
   scrollContent: {
-    flexGrow: 1,
-    paddingBottom: 120, // Increased padding for bottom navigation
+    paddingBottom: 20,
   },
   headerContainer: {
     backgroundColor: colors.cardWhite,
@@ -1515,7 +1186,6 @@ const styles = StyleSheet.create({
   },
   paymentFormContainer: {
     padding: 20,
-    paddingBottom: 40, // Extra padding at bottom
   },
   planSummaryCard: {
     backgroundColor: colors.cardWhite,
@@ -1748,15 +1418,14 @@ const styles = StyleSheet.create({
     lineHeight: 16,
   },
   bottomPadding: {
-    height: 120, // Increased space for bottom navigation and keyboard
+    height: 100, // Space for bottom navigation
   },
   // Billing Address Input Styles
   billingAddressSection: {
-    marginTop: 32, // More space before billing section
-    marginBottom: 24, // Space after billing section
+    marginTop: 24,
   },
   inputContainer: {
-    marginBottom: 24, // Increased spacing between inputs
+    marginBottom: 20,
   },
   inputLabel: {
     fontSize: 16,
@@ -1774,7 +1443,6 @@ const styles = StyleSheet.create({
     color: colors.textDark,
     backgroundColor: colors.cardWhite,
     minHeight: 50,
-    maxHeight: 120, // Prevent excessive height
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.05,
@@ -1797,25 +1465,6 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   flexInput: {
-    flex: 1,
-  },
-  // Status Banner Styles
-  statusBanner: {
-    backgroundColor: '#fff3cd',
-    borderColor: '#ffeaa7',
-    borderWidth: 1,
-    borderRadius: 8,
-    padding: 12,
-    margin: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  statusBannerText: {
-    fontSize: 14,
-    color: '#856404',
-    marginLeft: 8,
-    textAlign: 'center',
     flex: 1,
   },
 });

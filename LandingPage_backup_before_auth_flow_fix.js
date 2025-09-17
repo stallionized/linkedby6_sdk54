@@ -17,7 +17,6 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useAuth } from './Auth';
 
 const { width: screenWidth } = Dimensions.get('window');
 
@@ -65,18 +64,9 @@ const ConnectionLine = () => (
 
 const LandingPage = ({ navigation, onEnterApp, fadeAnim = new Animated.Value(1) }) => {
   console.log("LandingPage mounted");
-  const { user, loading } = useAuth();
   const heroAnim = useRef(new Animated.Value(0)).current;
   const aboutAnim = useRef(new Animated.Value(0)).current;
   const featuresAnim = useRef(new Animated.Value(0)).current;
-
-  // Auto-redirect authenticated users to Search screen
-  useEffect(() => {
-    if (!loading && user) {
-      console.log("Authenticated user detected on Landing page, redirecting to Search");
-      navigation.replace('Search');
-    }
-  }, [user, loading, navigation]);
 
   const handleScroll = (event) => {
     const yOffset = event.nativeEvent.contentOffset.y;
@@ -120,16 +110,11 @@ const LandingPage = ({ navigation, onEnterApp, fadeAnim = new Animated.Value(1) 
 
   const handleChatSubmit = async () => {
     try {
-      if (user) {
-        // User is authenticated, go directly to Search
-        if (chatInput.trim()) {
-          navigation.navigate('Search', { initialQuery: chatInput });
-        } else {
-          navigation.navigate('Search');
-        }
+      // For now, navigate directly to Search since auth is not implemented yet
+      if (chatInput.trim()) {
+        navigation.navigate('Search', { initialQuery: chatInput });
       } else {
-        // User not authenticated, go to login with query
-        navigation.navigate('LoginScreen', { initialQuery: chatInput.trim() });
+        navigation.navigate('Search');
       }
       setChatInput('');
     } catch (error) {
@@ -141,23 +126,13 @@ const LandingPage = ({ navigation, onEnterApp, fadeAnim = new Animated.Value(1) 
 
   const handleEnterApp = async () => {
     try {
-      if (user) {
-        // User is authenticated, go directly to Search
-        navigation.navigate('Search');
-      } else {
-        // User not authenticated, go to login
-        navigation.navigate('LoginScreen');
-      }
+      // For now, navigate directly to Search since auth is not implemented yet
+      navigation.navigate('Search');
     } catch (error) {
       console.error('Error entering app:', error);
       navigation.navigate('LoginScreen');
     }
   };
-
-  // Don't render anything while checking authentication
-  if (loading) {
-    return null;
-  }
 
   return (
     <SafeAreaView style={styles.container} edges={['top', 'bottom']}>

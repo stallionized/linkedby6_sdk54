@@ -30,7 +30,6 @@ import BusinessProfileSlider from './BusinessProfileSlider';
 import AddToProjectSlider from './AddToProjectSlider';
 import MobileHeader from './MobileHeader';
 import ConnectionGraphDisplay from './ConnectionGraphDisplay';
-import ConnectionsDetailSlider from './ConnectionsDetailSlider';
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 
@@ -194,8 +193,7 @@ const BusinessCard = ({
   onToggleRecommendation,
   connectionPath,
   loadingConnection,
-  currentUserFullName,
-  onConnectionsClick
+  currentUserFullName
 }) => {
   return (
     <TouchableOpacity style={styles.businessCard} onPress={() => onPress(business.business_id)}>
@@ -259,23 +257,14 @@ const BusinessCard = ({
           </View>
         ) : connectionPath ? (
           connectionPath.found && connectionPath.data ? (
-            <TouchableOpacity 
-              style={styles.connectionFound}
-              onPress={() => onConnectionsClick && onConnectionsClick(business.business_id, connectionPath.raw, business.business_name)}
-              activeOpacity={0.7}
-            >
-              <View style={styles.connectionDisplayContainer}>
-                <ConnectionGraphDisplay 
-                  pathData={connectionPath.raw}
-                  businessName={business.business_name}
-                  currentUserFullName={currentUserFullName}
-                  compact={true} // Mobile compact version
-                />
-                <View style={styles.expandIcon}>
-                  <Ionicons name="expand-outline" size={12} color={colors.primaryBlue} />
-                </View>
-              </View>
-            </TouchableOpacity>
+            <View style={styles.connectionFound}>
+              <ConnectionGraphDisplay 
+                pathData={connectionPath.raw}
+                businessName={business.business_name}
+                currentUserFullName={currentUserFullName}
+                compact={true} // Mobile compact version
+              />
+            </View>
           ) : (
             <View style={styles.connectionContainer}>
               <Ionicons name="people-outline" size={16} color={colors.textMedium} />
@@ -340,7 +329,7 @@ const ChatMessage = ({ message }) => {
   );
 };
 
-const SearchScreen = ({ navigation, route, isBusinessMode, onBusinessModeToggle }) => {
+const SearchScreen = ({ navigation, route }) => {
   // Get safe area insets for proper positioning
   const insets = useSafeAreaInsets();
   
@@ -370,9 +359,7 @@ const SearchScreen = ({ navigation, route, isBusinessMode, onBusinessModeToggle 
   const [chatSliderVisible, setChatSliderVisible] = useState(false);
   const [businessSliderVisible, setBusinessSliderVisible] = useState(false);
   const [addToProjectSliderVisible, setAddToProjectSliderVisible] = useState(false);
-  const [connectionsSliderVisible, setConnectionsSliderVisible] = useState(false);
   const [selectedBusinessId, setSelectedBusinessId] = useState(null);
-  const [selectedConnectionData, setSelectedConnectionData] = useState(null);
 
   // Animation refs
   const chatSlideAnim = useRef(new Animated.Value(-CHAT_SLIDER_WIDTH)).current;
@@ -1110,25 +1097,6 @@ const SearchScreen = ({ navigation, route, isBusinessMode, onBusinessModeToggle 
     setAddToProjectSliderVisible(true);
   };
 
-  // Handle connections click to open connections detail slider
-  const handleConnectionsClick = (businessId, pathData, businessName) => {
-    console.log('Opening connections detail slider for business:', businessName);
-    setSelectedBusinessId(businessId);
-    setSelectedConnectionData({
-      pathData,
-      businessName,
-      currentUserFullName,
-      currentUserPhoneNumber
-    });
-    setConnectionsSliderVisible(true);
-  };
-
-  // Close connections slider
-  const closeConnectionsSlider = () => {
-    setConnectionsSliderVisible(false);
-    setSelectedConnectionData(null);
-  };
-
   // Scroll to bottom when new messages arrive
   useEffect(() => {
     if (chatScrollViewRef.current && messages.length > 0) {
@@ -1204,8 +1172,6 @@ const SearchScreen = ({ navigation, route, isBusinessMode, onBusinessModeToggle 
       <MobileHeader
         navigation={navigation}
         title="AI Search"
-        isBusinessMode={isBusinessMode}
-        onBusinessModeToggle={onBusinessModeToggle}
       />
 
       {/* Main Content */}
@@ -1263,7 +1229,6 @@ const SearchScreen = ({ navigation, route, isBusinessMode, onBusinessModeToggle 
                   connectionPath={connectionPaths[business.business_id]}
                   loadingConnection={loadingPaths[business.business_id]}
                   currentUserFullName={currentUserFullName}
-                  onConnectionsClick={handleConnectionsClick}
                 />
               ))}
             </>
@@ -1409,16 +1374,6 @@ const SearchScreen = ({ navigation, route, isBusinessMode, onBusinessModeToggle 
         onClose={() => setAddToProjectSliderVisible(false)}
         businessId={selectedBusinessId}
         userId={currentUserId}
-      />
-
-      {/* Connections Detail Slider */}
-      <ConnectionsDetailSlider
-        isVisible={connectionsSliderVisible}
-        onClose={closeConnectionsSlider}
-        pathData={selectedConnectionData?.pathData}
-        businessName={selectedConnectionData?.businessName}
-        currentUserFullName={selectedConnectionData?.currentUserFullName}
-        currentUserPhoneNumber={selectedConnectionData?.currentUserPhoneNumber}
       />
 
       {/* Bottom Navigation */}
@@ -1635,9 +1590,9 @@ const styles = StyleSheet.create({
   connectionVisualization: {
     backgroundColor: colors.backgroundGray,
     borderRadius: 12,
-    padding: 16,
+    padding: 12,
     marginBottom: 8,
-    minHeight: 90, // Further increased to accommodate degrees spacing
+    minHeight: 60,
     justifyContent: 'center',
   },
   connectionContainer: {
@@ -1648,44 +1603,16 @@ const styles = StyleSheet.create({
   connectionFound: {
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 4,
-  },
-  connectionDisplayContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    position: 'relative',
-    width: '100%',
-  },
-  expandIcon: {
-    position: 'absolute',
-    right: 0,
-    bottom: 0,
-    backgroundColor: colors.cardWhite,
-    borderRadius: 8,
-    padding: 2,
-    elevation: 2,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-  },
-  expandHintText: {
-    fontSize: 10,
-    color: colors.primaryBlue,
-    marginTop: 4,
-    fontWeight: '500',
-    textAlign: 'center',
   },
   connectionText: {
-    fontSize: 14,
+    fontSize: 12,
     color: colors.textMedium,
     marginLeft: 8,
-    fontWeight: '600',
+    fontWeight: '500',
   },
   networkImage: {
-    height: 40,
-    width: 75,
+    height: 32,
+    width: 60,
     marginRight: 8,
   },
   // Chat Slider Styles

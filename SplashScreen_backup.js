@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { View, Text, StyleSheet, Animated, Dimensions } from 'react-native';
+import { View, Text, StyleSheet, Animated, Dimensions, Image } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -35,6 +35,11 @@ const SplashScreen = ({ onFinish }) => {
       <StatusBar style="light" />
       <Animated.View style={[styles.container, { opacity: fadeAnim }]}>
         <View style={styles.content}>
+          <Image 
+            source={require('./assets/logo_white.png')} 
+            style={styles.logo}
+            resizeMode="contain"
+          />
           <Text style={styles.title}>Linked By Six</Text>
           <Text style={styles.subtitle}>Better Service & Prices via Relationships</Text>
           
@@ -82,6 +87,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     flex: 1,
+  },
+  logo: {
+    width: 100,
+    height: 100,
+    marginBottom: 20,
   },
   title: {
     fontSize: 28,

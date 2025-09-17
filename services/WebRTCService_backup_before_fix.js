@@ -11,205 +11,98 @@ class WebRTCService {
     this.callChannel = null;
     this.signalingChannel = null;
     this.isInitialized = false;
-    this.initializationPromise = null;
   }
 
   async initialize(userId, callStateCallback, remoteStreamCallback, localStreamCallback) {
     try {
-      // If already initializing, wait for that to complete
-      if (this.initializationPromise) {
-        console.log('WebRTC Service initialization already in progress, waiting...');
-        await this.initializationPromise;
-        return;
-      }
+      this.currentUserId = userId;
+      this.callStateCallback = callStateCallback;
+      this.remoteStreamCallback = remoteStreamCallback;
+      this.localStreamCallback = localStreamCallback;
 
-      // If already initialized with the same user, just update callbacks
-      if (this.isInitialized && this.currentUserId === userId) {
-        console.log('WebRTC Service already initialized for this user, updating callbacks');
-        this.callStateCallback = callStateCallback;
-        this.remoteStreamCallback = remoteStreamCallback;
-        this.localStreamCallback = localStreamCallback;
-        return;
-      }
+      // Set up Supabase real-time subscriptions for calls
+      this.setupCallSubscription();
+      this.setupSignalingSubscription();
 
-      // Create initialization promise
-      this.initializationPromise = this._performInitialization(userId, callStateCallback, remoteStreamCallback, localStreamCallback);
-      await this.initializationPromise;
-      this.initializationPromise = null;
-
+      this.isInitialized = true;
+      console.log('WebRTC Service initialized successfully');
     } catch (error) {
-      this.initializationPromise = null;
       console.error('Error initializing WebRTC service:', error);
       throw error;
     }
   }
 
-  async _performInitialization(userId, callStateCallback, remoteStreamCallback, localStreamCallback) {
-    // Destroy existing connections if reinitializing
-    if (this.isInitialized) {
-      console.log('Destroying existing WebRTC connections before reinitializing');
-      this.destroy();
-    }
-
-    this.currentUserId = userId;
-    this.callStateCallback = callStateCallback;
-    this.remoteStreamCallback = remoteStreamCallback;
-    this.localStreamCallback = localStreamCallback;
-
-    // Set up Supabase real-time subscriptions for calls
-    await this.setupCallSubscription();
-    await this.setupSignalingSubscription();
-
-    this.isInitialized = true;
-    console.log('WebRTC Service initialized successfully for user:', userId);
-  }
-
-  setUserId(userId) {
-    this.currentUserId = userId;
-    console.log('WebRTC Service user ID set to:', userId);
-  }
-
-  // Method to ensure service is initialized before use
-  async ensureInitialized() {
-    if (this.initializationPromise) {
-      console.log('Waiting for WebRTC initialization to complete...');
-      await this.initializationPromise;
-    }
-
-    if (!this.isInitialized || !this.currentUserId) {
-      console.log('WebRTC service not initialized, attempting auto-initialization...');
-      
-      // Try to get current user and auto-initialize
-      try {
-        const { supabase } = require('../supabaseClient');
-        const { data: { user }, error } = await supabase.auth.getUser();
-        
-        if (error || !user) {
-          throw new Error('WebRTC service not initialized. Please ensure user is logged in.');
+  setupCallSubscription() {
+    // Subscribe to voice_calls table for incoming calls
+    this.callChannel = supabase
+      .channel('voice_calls')
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'voice_calls',
+          filter: `receiver_id=eq.${this.currentUserId}`,
+        },
+        (payload) => {
+          console.log('Incoming call received:', payload);
+          this.handleIncomingCall(payload.new);
         }
-        
-        console.log('Auto-initializing WebRTC service for user:', user.id);
-        
-        // Auto-initialize with minimal callbacks
-        await this.initialize(
-          user.id,
-          this.callStateCallback || ((state, data) => console.log('Call state:', state, data)),
-          this.remoteStreamCallback || ((stream) => console.log('Remote stream:', stream)),
-          this.localStreamCallback || ((stream) => console.log('Local stream:', stream))
-        );
-        
-        console.log('WebRTC service auto-initialized successfully');
-      } catch (autoInitError) {
-        console.error('Failed to auto-initialize WebRTC service:', autoInitError);
-        throw new Error('WebRTC service not initialized. Please ensure user is logged in.');
-      }
-    }
-
-    if (!this.currentUserId) {
-      throw new Error('WebRTC service has no user ID. Please ensure user is logged in.');
-    }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'voice_calls',
+          filter: `caller_id=eq.${this.currentUserId}`,
+        },
+        (payload) => {
+          console.log('Call status updated:', payload);
+          this.handleCallStatusUpdate(payload.new);
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'voice_calls',
+          filter: `receiver_id=eq.${this.currentUserId}`,
+        },
+        (payload) => {
+          console.log('Call status updated:', payload);
+          this.handleCallStatusUpdate(payload.new);
+        }
+      )
+      .subscribe();
   }
 
-  async setupCallSubscription() {
-    return new Promise((resolve, reject) => {
-      try {
-        // Subscribe to voice_calls table for incoming calls
-        this.callChannel = supabase
-          .channel(`voice_calls_${this.currentUserId}`)
-          .on(
-            'postgres_changes',
-            {
-              event: 'INSERT',
-              schema: 'public',
-              table: 'voice_calls',
-              filter: `receiver_id=eq.${this.currentUserId}`,
-            },
-            (payload) => {
-              console.log('Incoming call received:', payload);
-              this.handleIncomingCall(payload.new);
-            }
-          )
-          .on(
-            'postgres_changes',
-            {
-              event: 'UPDATE',
-              schema: 'public',
-              table: 'voice_calls',
-              filter: `caller_id=eq.${this.currentUserId}`,
-            },
-            (payload) => {
-              console.log('Call status updated:', payload);
-              this.handleCallStatusUpdate(payload.new);
-            }
-          )
-          .on(
-            'postgres_changes',
-            {
-              event: 'UPDATE',
-              schema: 'public',
-              table: 'voice_calls',
-              filter: `receiver_id=eq.${this.currentUserId}`,
-            },
-            (payload) => {
-              console.log('Call status updated:', payload);
-              this.handleCallStatusUpdate(payload.new);
-            }
-          )
-          .subscribe((status) => {
-            if (status === 'SUBSCRIBED') {
-              console.log('Call subscription established successfully');
-              resolve();
-            } else if (status === 'CHANNEL_ERROR') {
-              console.error('Call subscription failed');
-              reject(new Error('Failed to subscribe to call channel'));
-            }
-          });
-      } catch (error) {
-        console.error('Error setting up call subscription:', error);
-        reject(error);
-      }
-    });
-  }
-
-  async setupSignalingSubscription() {
-    return new Promise((resolve, reject) => {
-      try {
-        // Subscribe to call_signaling table for WebRTC signaling
-        this.signalingChannel = supabase
-          .channel(`call_signaling_${this.currentUserId}`)
-          .on(
-            'postgres_changes',
-            {
-              event: 'INSERT',
-              schema: 'public',
-              table: 'call_signaling',
-              filter: `receiver_id=eq.${this.currentUserId}`,
-            },
-            (payload) => {
-              console.log('Signaling message received:', payload);
-              this.handleSignalingMessage(payload.new);
-            }
-          )
-          .subscribe((status) => {
-            if (status === 'SUBSCRIBED') {
-              console.log('Signaling subscription established successfully');
-              resolve();
-            } else if (status === 'CHANNEL_ERROR') {
-              console.error('Signaling subscription failed');
-              reject(new Error('Failed to subscribe to signaling channel'));
-            }
-          });
-      } catch (error) {
-        console.error('Error setting up signaling subscription:', error);
-        reject(error);
-      }
-    });
+  setupSignalingSubscription() {
+    // Subscribe to call_signaling table for WebRTC signaling
+    this.signalingChannel = supabase
+      .channel('call_signaling')
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'call_signaling',
+          filter: `receiver_id=eq.${this.currentUserId}`,
+        },
+        (payload) => {
+          console.log('Signaling message received:', payload);
+          this.handleSignalingMessage(payload.new);
+        }
+      )
+      .subscribe();
   }
 
   async startCall(receiverId, receiverName, callType = 'user') {
     try {
-      // Ensure service is properly initialized before starting call
-      await this.ensureInitialized();
+      if (!this.isInitialized) {
+        throw new Error('WebRTC service not initialized');
+      }
 
       console.log(`Starting ${callType} call to ${receiverName} (${receiverId})`);
 
@@ -340,9 +233,6 @@ class WebRTCService {
     try {
       console.log(`Declining call ${callId}`);
 
-      // Store call info before clearing it
-      const callToDecline = this.currentCall ? { ...this.currentCall } : null;
-
       // Update call status to declined
       const { error: updateError } = await supabase
         .from('voice_calls')
@@ -357,49 +247,37 @@ class WebRTCService {
       }
 
       // Send decline signaling message only for user-to-user calls
-      if (callToDecline && callToDecline.callType === 'user' && callToDecline.caller_id) {
+      if (this.currentCall && this.currentCall.callType === 'user' && this.currentCall.caller_id) {
         await this.sendSignalingMessage(
-          callToDecline.caller_id,
+          this.currentCall.caller_id,
           callId,
           'call-decline',
           {
             declined: true,
           }
         );
-      } else if (callToDecline && callToDecline.callType === 'business') {
+      } else if (this.currentCall && this.currentCall.callType === 'business') {
         console.log('Business call declined - no signaling message needed');
       }
-
-      // Clear current call
-      this.currentCall = null;
 
       // Update call state
       if (this.callStateCallback) {
         this.callStateCallback('ended', { reason: 'declined' });
       }
+
+      this.currentCall = null;
     } catch (error) {
       console.error('Failed to decline call:', error);
-      // Ensure currentCall is cleared even if there's an error
-      this.currentCall = null;
-      
-      // Still notify about call end even if there was an error
-      if (this.callStateCallback) {
-        this.callStateCallback('ended', { reason: 'error', error: error.message });
-      }
     }
   }
 
   async endCall() {
     try {
       if (!this.currentCall) {
-        console.log('No active call to end');
         return;
       }
 
       console.log(`Ending call ${this.currentCall.id}`);
-
-      // Store call info before clearing it
-      const callToEnd = { ...this.currentCall };
 
       // Update call status to ended
       const { error: updateError } = await supabase
@@ -408,7 +286,7 @@ class WebRTCService {
           call_status: 'ended',
           ended_at: new Date().toISOString(),
         })
-        .eq('id', callToEnd.id);
+        .eq('id', this.currentCall.id);
 
       if (updateError) {
         console.error('Failed to update call status:', updateError);
@@ -416,15 +294,15 @@ class WebRTCService {
 
       // Send end call signaling message only for user-to-user calls
       // For business calls, we don't send signaling messages since there's no specific user to signal
-      if (callToEnd.callType === 'user') {
-        const otherUserId = callToEnd.isOutgoing 
-          ? callToEnd.receiver_id 
-          : callToEnd.caller_id;
+      if (this.currentCall.callType === 'user') {
+        const otherUserId = this.currentCall.isOutgoing 
+          ? this.currentCall.receiver_id 
+          : this.currentCall.caller_id;
 
         if (otherUserId) {
           await this.sendSignalingMessage(
             otherUserId,
-            callToEnd.id,
+            this.currentCall.id,
             'call-end',
             {
               endedBy: this.currentUserId,
@@ -435,22 +313,14 @@ class WebRTCService {
         console.log('Business call ended - no signaling message needed');
       }
 
-      // Clear current call first
-      this.currentCall = null;
-
       // Update call state
       if (this.callStateCallback) {
         this.callStateCallback('ended', { reason: 'user_ended' });
       }
+
+      this.currentCall = null;
     } catch (error) {
       console.error('Failed to end call:', error);
-      // Ensure currentCall is cleared even if there's an error
-      this.currentCall = null;
-      
-      // Still notify about call end even if there was an error
-      if (this.callStateCallback) {
-        this.callStateCallback('ended', { reason: 'error', error: error.message });
-      }
     }
   }
 
@@ -539,18 +409,6 @@ class WebRTCService {
       return true;
     } catch (error) {
       console.error('Failed to toggle mute:', error);
-      return false;
-    }
-  }
-
-  async toggleSpeaker() {
-    try {
-      // For now, we'll just log this - in a full implementation with native audio,
-      // you'd toggle between speaker and earpiece audio output
-      console.log('Toggle speaker requested');
-      return true;
-    } catch (error) {
-      console.error('Failed to toggle speaker:', error);
       return false;
     }
   }

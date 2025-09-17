@@ -11,7 +11,6 @@ import {
 import { Ionicons, MaterialIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useAuth } from './Auth';
-import { supabase } from './supabaseClient';
 
 const { width: screenWidth } = Dimensions.get('window');
 
@@ -36,72 +35,16 @@ const MobileHeader = ({
   showBackButton = false,
   rightActions = [],
   onNewSearch,
-  showNewSearch = false,
-  isBusinessMode = false,
-  onBusinessModeToggle
+  showNewSearch = false
 }) => {
   const { user, signOut } = useAuth();
-  const [hasBusinessProfile, setHasBusinessProfile] = useState(false);
-  const [businessProfile, setBusinessProfile] = useState(null);
-
-  // Check if user has business profile on mount
-  useEffect(() => {
-    checkBusinessProfile();
-  }, [user]);
-
-  const checkBusinessProfile = async () => {
-    if (!user) {
-      setHasBusinessProfile(false);
-      setBusinessProfile(null);
-      return;
-    }
-
-    try {
-      const { data: profile, error } = await supabase
-        .from('business_profiles')
-        .select('business_id, business_name, business_status, is_active')
-        .eq('user_id', user.id)
-        .eq('is_active', true)
-        .single();
-
-      if (profile && !error) {
-        setHasBusinessProfile(true);
-        setBusinessProfile(profile);
-      } else {
-        setHasBusinessProfile(false);
-        setBusinessProfile(null);
-      }
-    } catch (error) {
-      console.log('No business profile found for user');
-      setHasBusinessProfile(false);
-      setBusinessProfile(null);
-    }
-  };
 
   const handleProfilePress = () => {
     navigation.navigate('Profile');
   };
 
   const handleBillingPress = () => {
-    if (hasBusinessProfile) {
-      // User has business profile - toggle business mode
-      if (isBusinessMode) {
-        // Currently in business mode - switch to general mode
-        if (onBusinessModeToggle) {
-          onBusinessModeToggle(false);
-        }
-        navigation.navigate('Search');
-      } else {
-        // Currently in general mode - switch to business mode
-        if (onBusinessModeToggle) {
-          onBusinessModeToggle(true);
-        }
-        navigation.navigate('BusinessAnalytics');
-      }
-    } else {
-      // User doesn't have business profile - go to pricing
-      navigation.navigate('BusinessPricing');
-    }
+    navigation.navigate('BusinessPricing');
   };
 
   const handleSettingsPress = () => {
@@ -112,10 +55,6 @@ const MobileHeader = ({
         {
           text: 'Profile Settings',
           onPress: () => navigation.navigate('Settings'),
-        },
-        {
-          text: 'Business Profile',
-          onPress: () => navigation.navigate('BusinessProfile'),
         },
         {
           text: 'Billing & Payments',
@@ -209,7 +148,7 @@ const MobileHeader = ({
               onPress={handleBillingPress}
             >
               <MaterialIcons 
-                name={isBusinessMode ? "work" : "work-outline"} 
+                name="work" 
                 size={24} 
                 color={colors.primaryBlue} 
               />
@@ -312,9 +251,6 @@ const styles = StyleSheet.create({
     padding: 8,
     marginLeft: 4,
     borderRadius: 8,
-  },
-  businessModeIconButton: {
-    backgroundColor: colors.primaryBlue,
   },
   profileButton: {
     borderWidth: 2,

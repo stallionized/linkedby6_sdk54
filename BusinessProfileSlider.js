@@ -748,20 +748,28 @@ const BusinessProfileSlider = ({ isVisible, onClose, businessId, userId, viewSou
     setLocalStream(stream);
   };
 
-  // Initialize WebRTC service when component mounts
+  // Register callback handlers with the globally initialized WebRTC service
   useEffect(() => {
     if (user && user.id) {
-      WebRTCService.initialize(
-        user.id,
-        handleCallStateChange,
-        handleRemoteStream,
-        handleLocalStream
-      );
+      console.log('User available for WebRTC calls, registering callbacks:', user.id);
+      
+      // Update the WebRTC service callbacks to use this component's handlers
+      WebRTCService.callStateCallback = handleCallStateChange;
+      WebRTCService.remoteStreamCallback = handleRemoteStream;
+      WebRTCService.localStreamCallback = handleLocalStream;
     }
 
+    // Cleanup: reset callbacks when component unmounts
     return () => {
-      // Cleanup WebRTC service when component unmounts
-      WebRTCService.destroy();
+      if (WebRTCService.callStateCallback === handleCallStateChange) {
+        WebRTCService.callStateCallback = null;
+      }
+      if (WebRTCService.remoteStreamCallback === handleRemoteStream) {
+        WebRTCService.remoteStreamCallback = null;
+      }
+      if (WebRTCService.localStreamCallback === handleLocalStream) {
+        WebRTCService.localStreamCallback = null;
+      }
     };
   }, [user]);
 
@@ -984,7 +992,12 @@ const BusinessProfileSlider = ({ isVisible, onClose, businessId, userId, viewSou
     }
 
     try {
+      console.log('Starting WebRTC call to business:', profileData.businessName);
       setCallState('calling');
+      
+      // Ensure WebRTC service is initialized before making the call
+      await WebRTCService.ensureInitialized();
+      
       await WebRTCService.startCall(
         profileData.businessId, 
         profileData.businessName,
@@ -1000,7 +1013,18 @@ const BusinessProfileSlider = ({ isVisible, onClose, businessId, userId, viewSou
       });
     } catch (error) {
       console.error('Error starting call:', error);
-      Alert.alert('Call Failed', 'Unable to start the call. Please try again.');
+      
+      // Provide more specific error messages
+      let errorMessage = 'Unable to start the call. Please try again.';
+      if (error.message.includes('not initialized')) {
+        errorMessage = 'Call service is not ready. Please try again in a moment.';
+      } else if (error.message.includes('logged in')) {
+        errorMessage = 'Please ensure you are logged in and try again.';
+      } else if (error.message.includes('database')) {
+        errorMessage = 'Voice calling is temporarily unavailable. Please try again later.';
+      }
+      
+      Alert.alert('Call Failed', errorMessage);
       setCallState('idle');
     }
   };

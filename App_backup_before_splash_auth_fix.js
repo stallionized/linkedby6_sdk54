@@ -18,10 +18,6 @@ import ConnectionsScreen from './ConnectionsScreen';
 import MessagesScreen from './MessagesScreen';
 import ConversationScreen from './ConversationScreen';
 import BusinessPricingScreen from './BusinessPricingScreen'; // Add BusinessPricingScreen
-import BusinessProfileScreen from './BusinessProfileScreen'; // Add BusinessProfileScreen
-import BusinessConnectionsScreen from './BusinessConnectionsScreen'; // Add BusinessConnectionsScreen
-import BusinessMessagesScreen from './BusinessMessagesScreen'; // Add BusinessMessagesScreen
-import BusinessAnalyticsScreen from './BusinessAnalyticsScreen'; // Add BusinessAnalyticsScreen
 import BillingScreen from './billingscreen'; // Fixed import path (matches your file name)
 import Toast from 'react-native-toast-message';
 
@@ -29,7 +25,6 @@ const Stack = createStackNavigator();
 
 function AppNavigator() {
   const { user, loading } = useAuth();
-  const [isBusinessMode, setIsBusinessMode] = useState(false);
 
   // Show loading screen while checking authentication
   if (loading) {
@@ -38,11 +33,6 @@ function AppNavigator() {
 
   // Determine initial route based on authentication state
   const initialRouteName = user ? "Search" : "Landing";
-
-  // Business mode toggle handler
-  const handleBusinessModeToggle = (businessMode) => {
-    setIsBusinessMode(businessMode);
-  };
 
   return (
     <Stack.Navigator
@@ -84,6 +74,7 @@ function AppNavigator() {
       {/* SearchScreen with custom gesture handling */}
       <Stack.Screen 
         name="Search" 
+        component={SearchScreen}
         options={{
           // Disable default swipe back to prevent conflicts with chat slider
           gestureEnabled: false,
@@ -100,15 +91,7 @@ function AppNavigator() {
             };
           },
         }}
-      >
-        {(props) => (
-          <SearchScreen 
-            {...props} 
-            isBusinessMode={isBusinessMode}
-            onBusinessModeToggle={handleBusinessModeToggle}
-          />
-        )}
-      </Stack.Screen>
+      />
       
       {/* Business Pricing Screen - first step for subscription */}
       <Stack.Screen 
@@ -117,16 +100,6 @@ function AppNavigator() {
         options={{
           gestureEnabled: true,
           title: 'Business Pricing', // For accessibility
-        }}
-      />
-      
-      {/* Business Profile Screen - for editing business profile */}
-      <Stack.Screen 
-        name="BusinessProfile" 
-        component={BusinessProfileScreen}
-        options={{
-          gestureEnabled: true,
-          title: 'Business Profile', // For accessibility
         }}
       />
       
@@ -247,108 +220,38 @@ function AppNavigator() {
           title: 'Settings', // For accessibility
         }}
       />
-      
-      {/* Business Navigation Screens */}
-      <Stack.Screen 
-        name="BusinessConnections" 
-        component={BusinessConnectionsScreen}
-        options={{
-          gestureEnabled: true,
-          title: 'Business Connections', // For accessibility
-          cardStyleInterpolator: ({ current }) => {
-            return {
-              cardStyle: {
-                opacity: current.progress.interpolate({
-                  inputRange: [0, 1],
-                  outputRange: [0, 1],
-                }),
-              },
-            };
-          },
-        }}
-      />
-      <Stack.Screen 
-        name="BusinessMessages" 
-        component={BusinessMessagesScreen}
-        options={{
-          gestureEnabled: true,
-          title: 'Business Messages', // For accessibility
-          cardStyleInterpolator: ({ current }) => {
-            return {
-              cardStyle: {
-                opacity: current.progress.interpolate({
-                  inputRange: [0, 1],
-                  outputRange: [0, 1],
-                }),
-              },
-            };
-          },
-        }}
-      />
-      <Stack.Screen 
-        name="BusinessAnalytics" 
-        options={{
-          gestureEnabled: true,
-          title: 'Business Analytics', // For accessibility
-          cardStyleInterpolator: ({ current }) => {
-            return {
-              cardStyle: {
-                opacity: current.progress.interpolate({
-                  inputRange: [0, 1],
-                  outputRange: [0, 1],
-                }),
-              },
-            };
-          },
-        }}
-      >
-        {(props) => (
-          <BusinessAnalyticsScreen 
-            {...props} 
-            isBusinessMode={isBusinessMode}
-            onBusinessModeToggle={handleBusinessModeToggle}
-          />
-        )}
-      </Stack.Screen>
     </Stack.Navigator>
   );
 }
 
-function AppContent() {
+export default function App() {
   const [showSplash, setShowSplash] = useState(true);
-  const { loading } = useAuth();
 
   const handleSplashFinish = () => {
     setShowSplash(false);
   };
 
   return (
-    <GestureHandlerRootView style={styles.container}>
-      {/* StatusBar configuration optimized for mobile */}
-      <StatusBar 
-        barStyle="light-content"
-        backgroundColor="#1E88E5" 
-        translucent={false}
-        animated={true}
-      />
-      
-      {showSplash ? (
-        <SplashScreen onFinish={handleSplashFinish} loading={loading} />
-      ) : (
-        <NavigationContainer>
-          <AppNavigator />
-        </NavigationContainer>
-      )}
-      <Toast />
-    </GestureHandlerRootView>
-  );
-}
-
-export default function App() {
-  return (
     <SafeAreaProvider>
       <AuthProvider>
-        <AppContent />
+        <GestureHandlerRootView style={styles.container}>
+          {/* StatusBar configuration optimized for mobile */}
+          <StatusBar 
+            barStyle="light-content"
+            backgroundColor="#1E88E5" 
+            translucent={false}
+            animated={true}
+          />
+          
+          {showSplash ? (
+            <SplashScreen onFinish={handleSplashFinish} />
+          ) : (
+            <NavigationContainer>
+              <AppNavigator />
+            </NavigationContainer>
+          )}
+          <Toast />
+        </GestureHandlerRootView>
       </AuthProvider>
     </SafeAreaProvider>
   );
