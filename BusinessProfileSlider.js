@@ -33,6 +33,9 @@ import ActiveCallScreen from './components/ActiveCallScreen';
 // Import web browser component
 import WebBrowserSlider from './components/WebBrowserSlider';
 
+// Import logo component
+import BusinessLogoInitials from './components/BusinessLogoInitials';
+
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 
 // Mobile-optimized constants - UPDATED: Full screen width
@@ -920,6 +923,7 @@ const BusinessProfileSlider = ({ isVisible, onClose, businessId, userId, viewSou
         if (data) {
           const transformedData = {
             logo: data.image_url,
+            logoDominantColor: data.logo_dominant_color,
             logoBackgroundColor: '#e9ecef',
             businessName: data.business_name || 'Business Name',
             industry: data.industry || 'Industry',
@@ -1663,15 +1667,13 @@ const BusinessProfileSlider = ({ isVisible, onClose, businessId, userId, viewSou
       keyboardShouldPersistTaps="handled"
     >
       <View style={styles.mainInfoCard}>
-        <View style={[styles.logoContainer, { backgroundColor: logoBgColor }]}>
-          {profileData.logo ? (
-            <Image source={{ uri: profileData.logo }} style={styles.logo} />
-          ) : (
-            <Text style={styles.logoPlaceholder}>
-              {profileData.businessName.charAt(0).toUpperCase()}
-            </Text>
-          )}
-        </View>
+        <BusinessLogoInitials
+          businessName={profileData.businessName}
+          imageUrl={profileData.logo}
+          backgroundColor={profileData.logoDominantColor}
+          size={80}
+          style={styles.logoContainer}
+        />
         <View style={styles.businessInfoContainer}>
           <Text style={styles.businessName}>{profileData.businessName}</Text>
           <Text style={styles.industryText}>Sending an internal email</Text>
@@ -1782,100 +1784,99 @@ const BusinessProfileSlider = ({ isVisible, onClose, businessId, userId, viewSou
                 showsVerticalScrollIndicator={true}
               >
                 <View style={styles.mainInfoCard}>
-                  <View style={[
-                    styles.logoContainer,
-                    { backgroundColor: logoBgColor }
-                  ]}>
-                    {profileData.logo ? (
-                      <Image source={{ uri: profileData.logo }} style={styles.logo} />
-                    ) : (
-                      <Text style={styles.logoPlaceholder}>
-                        {profileData.businessName.charAt(0).toUpperCase()}
-                      </Text>
-                    )}
+                  <View style={styles.topRow}>
+                    <BusinessLogoInitials
+                      businessName={profileData.businessName}
+                      imageUrl={profileData.logo}
+                      backgroundColor={profileData.logoDominantColor}
+                      size={80}
+                      style={styles.logoContainer}
+                    />
+
+                    <View style={styles.businessInfoContainer}>
+                      <Text style={styles.businessName}>{profileData.businessName}</Text>
+
+                      {profileData.industry && (
+                        <View style={styles.infoRow}>
+                          <Ionicons name="briefcase-outline" size={18} color="#666" style={styles.infoIcon} />
+                          <Text style={styles.industryText}>{profileData.industry}</Text>
+                        </View>
+                      )}
+
+                      {profileData.coverageArea && profileData.coverageArea.type && (
+                        <View style={styles.infoRow}>
+                          <Ionicons
+                            name={
+                              profileData.coverageArea.type === 'local' ? 'location-outline' :
+                              profileData.coverageArea.type === 'regional' ? 'map-outline' :
+                              profileData.coverageArea.type === 'national' ? 'flag-outline' :
+                              'globe-outline'
+                            }
+                            size={18}
+                            color="#666"
+                            style={styles.infoIcon}
+                          />
+                          <Text style={styles.coverageText}>
+                            {profileData.coverageArea.type.charAt(0).toUpperCase() + profileData.coverageArea.type.slice(1)}
+                            {profileData.coverageArea.type === 'local' && profileData.coverageArea.radius &&
+                              ` (${profileData.coverageArea.radius} miles radius)`}
+                            {profileData.coverageArea.details && ` - ${profileData.coverageArea.details}`}
+                          </Text>
+                        </View>
+                      )}
+                    </View>
                   </View>
-                  
-                  <View style={styles.businessInfoContainer}>
-                    <Text style={styles.businessName}>{profileData.businessName}</Text>
-                    
-                    {profileData.industry && (
-                      <View style={styles.infoRow}>
-                        <Ionicons name="briefcase-outline" size={18} color="#666" style={styles.infoIcon} />
-                        <Text style={styles.industryText}>{profileData.industry}</Text>
-                      </View>
-                    )}
-                    
-                    {profileData.coverageArea && profileData.coverageArea.type && (
-                      <View style={styles.infoRow}>
-                        <Ionicons 
-                          name={
-                            profileData.coverageArea.type === 'local' ? 'location-outline' :
-                            profileData.coverageArea.type === 'regional' ? 'map-outline' :
-                            profileData.coverageArea.type === 'national' ? 'flag-outline' :
-                            'globe-outline'
-                          } 
-                          size={18} 
-                          color="#666" 
-                          style={styles.infoIcon} 
-                        />
-                        <Text style={styles.coverageText}>
-                          {profileData.coverageArea.type.charAt(0).toUpperCase() + profileData.coverageArea.type.slice(1)}
-                          {profileData.coverageArea.type === 'local' && profileData.coverageArea.radius &&
-                            ` (${profileData.coverageArea.radius} miles radius)`}
-                          {profileData.coverageArea.details && ` - ${profileData.coverageArea.details}`}
-                        </Text>
-                      </View>
-                    )}
-                    
-                    {!reviewMode && (
-                      <View style={styles.quickContactContainer}>
-                        {profileData.contactInfo?.phone && profileData.contactInfo.phone !== 'Not specified' && (
-                          <TouchableOpacity 
-                            style={styles.quickContactButton}
-                            onPress={() => handlePhoneCall(profileData.contactInfo.phone)}
-                          >
-                            <Ionicons name="call-outline" size={20} color="#0D47A1" />
-                            <Text style={styles.quickContactText}>Call</Text>
-                          </TouchableOpacity>
-                        )}
-                        
-                        {profileData.contactInfo?.email && profileData.contactInfo.email !== 'Not specified' && (
-                          <TouchableOpacity 
-                            style={styles.quickContactButton}
-                            onPress={() => {
-                              trackContactClick('internal_email', {
-                                email_address: profileData.contactInfo.email,
-                                button_location: 'quick_contact',
-                                action: 'open_internal_email_form'
-                              });
-                              setEmailMode(true);
-                            }}
-                          >
-                            <Ionicons name="mail-outline" size={20} color="#0D47A1" />
-                            <Text style={styles.quickContactText}>Email</Text>
-                          </TouchableOpacity>
-                        )}
-                        
-                        {profileData.contactInfo?.website && (
-                          <TouchableOpacity 
-                            style={styles.quickContactButton}
-                            onPress={() => handleWebsite(profileData.contactInfo.website)}
-                          >
-                            <Ionicons name="globe-outline" size={20} color="#0D47A1" />
-                            <Text style={styles.quickContactText}>Website</Text>
-                          </TouchableOpacity>
-                        )}
-                        
-                        <TouchableOpacity 
+
+                  {!reviewMode && (
+                    <ScrollView
+                      horizontal
+                      showsHorizontalScrollIndicator={false}
+                      style={styles.quickContactContainer}
+                      contentContainerStyle={styles.quickContactContent}
+                    >
+                      {profileData.contactInfo?.phone && profileData.contactInfo.phone !== 'Not specified' && (
+                        <TouchableOpacity
                           style={styles.quickContactButton}
-                          onPress={() => handleDirectMessage(profileData.businessId, navigation)}
+                          onPress={() => handlePhoneCall(profileData.contactInfo.phone)}
                         >
-                          <Ionicons name="chatbubble-outline" size={20} color="#0D47A1" />
-                          <Text style={styles.quickContactText}>Message</Text>
+                          <Ionicons name="call-outline" size={20} color="#0D47A1" />
+                          <Text style={styles.quickContactText}>Call</Text>
                         </TouchableOpacity>
-                      </View>
-                    )}
-                  </View>
+                      )}
+
+                      {profileData.contactInfo?.website && (
+                        <TouchableOpacity
+                          style={styles.quickContactButton}
+                          onPress={() => handleWebsite(profileData.contactInfo.website)}
+                        >
+                          <Ionicons name="globe-outline" size={20} color="#0D47A1" />
+                          <Text style={styles.quickContactText}>Website</Text>
+                        </TouchableOpacity>
+                      )}
+
+                      <TouchableOpacity
+                        style={styles.quickContactButton}
+                        onPress={() => handleDirectMessage(profileData.businessId, navigation)}
+                      >
+                        <Ionicons name="mail-outline" size={20} color="#0D47A1" />
+                        <Text style={styles.quickContactText}>Message</Text>
+                      </TouchableOpacity>
+
+                      <TouchableOpacity
+                        style={styles.quickContactButton}
+                        onPress={() => {
+                          onClose();
+                          (navigation || navigationHook).navigate('ReviewEntry', {
+                            businessId: profileData.businessId,
+                            businessName: profileData.businessName,
+                          });
+                        }}
+                      >
+                        <Ionicons name="star-outline" size={20} color="#0D47A1" />
+                        <Text style={styles.quickContactText}>Review</Text>
+                      </TouchableOpacity>
+                    </ScrollView>
+                  )}
                 </View>
                 
                 {!reviewMode && (
@@ -1922,7 +1923,6 @@ const BusinessProfileSlider = ({ isVisible, onClose, businessId, userId, viewSou
                   </View>
                 )}
 
-                
                 {reviewMode ? (
                   <ReviewEntryForm 
                     businessId={businessId} 
@@ -2141,7 +2141,6 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   mainInfoCard: {
-    flexDirection: 'row',
     backgroundColor: '#fff',
     borderRadius: 12,
     padding: 16,
@@ -2151,6 +2150,10 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 4,
     elevation: 3,
+  },
+  topRow: {
+    flexDirection: 'row',
+    marginBottom: 12,
   },
   logoContainer: {
     width: 80,
@@ -2200,9 +2203,11 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   quickContactContainer: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
     marginTop: 12,
+  },
+  quickContactContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   quickContactButton: {
     flexDirection: 'row',

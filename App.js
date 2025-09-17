@@ -1,310 +1,149 @@
 import React, { useState } from 'react';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
-import { StyleSheet, StatusBar, Platform } from 'react-native';
+import { StyleSheet, StatusBar, Platform, View, Text } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createStackNavigator } from '@react-navigation/stack';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { navigationRef } from './navigationRef';
+import { webRootContainer } from './utils/webScrollStyles';
+import { injectWebScrollbarStyles } from './utils/webScrollbarStyles';
+import './global.css';
 
+// Import only essential components first to test
 import { AuthProvider, useAuth } from './Auth';
 import SplashScreen from './SplashScreen';
+import ConsumerLandingPageNew from './ConsumerLandingPageNew';
+import ADPPageNew from './ADPPageNew';
 import LandingPage from './LandingPage';
+import BusinessLandingPage from './BusinessLandingPage';
 import LoginScreen from './LoginScreen';
 import RegistrationScreen from './RegistrationScreen';
+import OTPVerificationScreen from './OTPVerificationScreen';
 import SearchScreen from './SearchScreen';
-import SettingsScreen from './SettingsScreen';
-import RecommendedBusinessesScreen from './RecommendedBusinessesScreen';
-import ProjectQueueScreen from './ProjectQueueScreen';
 import ConnectionsScreen from './ConnectionsScreen';
 import MessagesScreen from './MessagesScreen';
-import ConversationScreen from './ConversationScreen';
-import BusinessPricingScreen from './BusinessPricingScreen'; // Add BusinessPricingScreen
-import BusinessProfileScreen from './BusinessProfileScreen'; // Add BusinessProfileScreen
-import BusinessConnectionsScreen from './BusinessConnectionsScreen'; // Add BusinessConnectionsScreen
-import BusinessMessagesScreen from './BusinessMessagesScreen'; // Add BusinessMessagesScreen
-import BusinessAnalyticsScreen from './BusinessAnalyticsScreen'; // Add BusinessAnalyticsScreen
-import BillingScreen from './billingscreen'; // Fixed import path (matches your file name)
+import ProjectQueueScreen from './ProjectQueueScreen';
+import RecommendedBusinessesScreen from './RecommendedBusinessesScreen';
+import BusinessPricingScreen from './BusinessPricingScreen';
+import BusinessProfileScreen from './BusinessProfileScreen';
+import BusinessAnalyticsScreen from './BusinessAnalyticsScreen';
+import BusinessDashboardScreen from './BusinessDashboardScreen';
+import BusinessConnectionsScreen from './BusinessConnectionsScreen';
+import BusinessMessagesScreen from './BusinessMessagesScreen';
 import Toast from 'react-native-toast-message';
+import ActivityTracker from './components/ActivityTracker';
 
 const Stack = createStackNavigator();
 
+// Simple fallback component in case of import errors
+const FallbackScreen = ({ route }) => {
+  const screenName = route?.name || 'Fallback';
+  return (
+    <View style={styles.fallbackScreen}>
+      <Text style={styles.fallbackText}>{screenName} Screen</Text>
+      <Text style={styles.fallbackSubtext}>This screen is loading...</Text>
+    </View>
+  );
+};
+
 function AppNavigator() {
+  console.log("AppNavigator rendering...");
   const { user, loading } = useAuth();
   const [isBusinessMode, setIsBusinessMode] = useState(false);
 
+  // Log auth state changes
+  React.useEffect(() => {
+    console.log("🔄 Auth state changed - user:", user ? 'logged in' : 'logged out');
+  }, [user]);
+
   // Show loading screen while checking authentication
   if (loading) {
-    return null; // The splash screen will handle this
+    console.log("Auth still loading, showing fallback...");
+    return (
+      <View style={styles.loadingScreen}>
+        <Text style={styles.loadingText}>Loading...</Text>
+      </View>
+    );
   }
 
-  // Determine initial route based on authentication state
-  const initialRouteName = user ? "Search" : "Landing";
+  // More robust authentication check - ensure user object has required properties
+  const isAuthenticated = user && user.id && user.email;
+  const initialRouteName = isAuthenticated ? "Search" : "Landing";
 
-  // Business mode toggle handler
+  console.log("🔍 Auth loaded - User object:", user ? {
+    id: user.id,
+    email: user.email,
+    hasRequiredFields: !!(user.id && user.email)
+  } : null);
+  console.log("🎯 Navigation decision:", isAuthenticated ? "authenticated -> Search" : "not authenticated -> Landing");
+  console.log("🔑 Navigator key:", isAuthenticated ? 'authenticated' : 'unauthenticated');
+
   const handleBusinessModeToggle = (businessMode) => {
+    console.log("Business mode toggled to:", businessMode);
     setIsBusinessMode(businessMode);
   };
 
   return (
     <Stack.Navigator
+      key={isAuthenticated ? 'authenticated' : 'unauthenticated'}
       initialRouteName={initialRouteName}
       screenOptions={{
-        headerShown: false, // Hide headers for all screens
+        headerShown: false,
         cardStyle: { backgroundColor: 'transparent' },
         animationEnabled: true,
-        // Default gesture configuration
         gestureEnabled: true,
         gestureDirection: 'horizontal',
-        cardStyleInterpolator: ({ current, layouts }) => {
-          return {
-            cardStyle: {
-              transform: [
-                {
-                  translateX: current.progress.interpolate({
-                    inputRange: [0, 1],
-                    outputRange: [layouts.screen.width, 0],
-                  }),
-                },
-              ],
-            },
-          };
-        },
       }}
     >
-      <Stack.Screen name="Landing" component={LandingPage} />
+      <Stack.Screen name="Landing" component={ConsumerLandingPageNew} />
+      <Stack.Screen name="LandingOld" component={LandingPage} />
+      <Stack.Screen name="BusinessLanding" component={BusinessLandingPage} />
+      <Stack.Screen name="InvestorADP" component={ADPPageNew} />
       <Stack.Screen name="LoginScreen" component={LoginScreen} />
-      <Stack.Screen 
-        name="Registration" 
-        component={RegistrationScreen}
-        options={{
-          gestureEnabled: true,
-          title: 'Create Account', // For accessibility
-        }}
-      />
-      
-      {/* SearchScreen with custom gesture handling */}
-      <Stack.Screen 
-        name="Search" 
-        options={{
-          // Disable default swipe back to prevent conflicts with chat slider
-          gestureEnabled: false,
-          // Ensure proper animation for SearchScreen
-          animationEnabled: true,
-          cardStyleInterpolator: ({ current }) => {
-            return {
-              cardStyle: {
-                opacity: current.progress.interpolate({
-                  inputRange: [0, 1],
-                  outputRange: [0, 1],
-                }),
-              },
-            };
-          },
-        }}
-      >
+      <Stack.Screen name="Registration" component={RegistrationScreen} />
+      <Stack.Screen name="OTPVerification" component={OTPVerificationScreen} />
+      <Stack.Screen name="Search" component={SearchScreen} />
+      <Stack.Screen name="Connections" component={ConnectionsScreen} />
+      <Stack.Screen name="Messages" component={MessagesScreen} />
+      <Stack.Screen name="ProjectQueue" component={ProjectQueueScreen} />
+      <Stack.Screen name="RecommendedBusinesses" component={RecommendedBusinessesScreen} />
+      <Stack.Screen name="BusinessPricing">
+        {(props) => <BusinessPricingScreen {...props} />}
+      </Stack.Screen>
+      <Stack.Screen name="BusinessProfileScreen">
+        {(props) => <BusinessProfileScreen {...props} />}
+      </Stack.Screen>
+      <Stack.Screen name="BusinessAnalytics">
         {(props) => (
-          <SearchScreen 
-            {...props} 
+          <BusinessAnalyticsScreen
+            {...props}
             isBusinessMode={isBusinessMode}
             onBusinessModeToggle={handleBusinessModeToggle}
           />
         )}
       </Stack.Screen>
-      
-      {/* Business Pricing Screen - first step for subscription */}
-      <Stack.Screen 
-        name="BusinessPricing" 
-        component={BusinessPricingScreen}
-        options={{
-          gestureEnabled: true,
-          title: 'Business Pricing', // For accessibility
-        }}
-      />
-      
-      {/* Business Profile Screen - for editing business profile */}
-      <Stack.Screen 
-        name="BusinessProfile" 
-        component={BusinessProfileScreen}
-        options={{
-          gestureEnabled: true,
-          title: 'Business Profile', // For accessibility
-        }}
-      />
-      
-      {/* Billing Screen - second step for payment */}
-      <Stack.Screen 
-        name="Billing" 
-        component={BillingScreen}
-        options={{
-          gestureEnabled: true,
-          title: 'Billing & Payments', // For accessibility
-        }}
-      />
-      
-      {/* Other main screens */}
-      <Stack.Screen 
-        name="RecommendedBusinesses" 
-        component={RecommendedBusinessesScreen}
-        options={{
-          gestureEnabled: true,
-          title: 'Recommended Businesses', // For accessibility
-          cardStyleInterpolator: ({ current }) => {
-            return {
-              cardStyle: {
-                opacity: current.progress.interpolate({
-                  inputRange: [0, 1],
-                  outputRange: [0, 1],
-                }),
-              },
-            };
-          },
-        }}
-      />
-      <Stack.Screen 
-        name="ProjectQueue" 
-        component={ProjectQueueScreen}
-        options={{
-          gestureEnabled: true,
-          title: 'Project Queue', // For accessibility
-          cardStyleInterpolator: ({ current }) => {
-            return {
-              cardStyle: {
-                opacity: current.progress.interpolate({
-                  inputRange: [0, 1],
-                  outputRange: [0, 1],
-                }),
-              },
-            };
-          },
-        }}
-      />
-      <Stack.Screen 
-        name="Connections" 
-        component={ConnectionsScreen}
-        options={{
-          gestureEnabled: false,
-          title: 'Connections', // For accessibility
-          cardStyleInterpolator: ({ current, layouts }) => {
-            return {
-              cardStyle: {
-                transform: [
-                  {
-                    translateX: current.progress.interpolate({
-                      inputRange: [0, 1],
-                      outputRange: [0, 0],
-                    }),
-                  },
-                ],
-              },
-            };
-          },
-        }}
-      />
-      <Stack.Screen 
-        name="Messages" 
-        component={MessagesScreen}
-        options={{
-          gestureEnabled: true,
-          title: 'Messages', // For accessibility
-          cardStyleInterpolator: ({ current }) => {
-            return {
-              cardStyle: {
-                opacity: current.progress.interpolate({
-                  inputRange: [0, 1],
-                  outputRange: [0, 1],
-                }),
-              },
-            };
-          },
-        }}
-      />
-      <Stack.Screen 
-        name="Conversation" 
-        component={ConversationScreen}
-        options={{
-          gestureEnabled: true,
-          title: 'Conversation', // For accessibility
-          cardStyleInterpolator: ({ current, layouts }) => {
-            return {
-              cardStyle: {
-                transform: [
-                  {
-                    translateX: current.progress.interpolate({
-                      inputRange: [0, 1],
-                      outputRange: [layouts.screen.width, 0],
-                    }),
-                  },
-                ],
-              },
-            };
-          },
-        }}
-      />
-      <Stack.Screen 
-        name="Settings" 
-        component={SettingsScreen}
-        options={{
-          gestureEnabled: true,
-          title: 'Settings', // For accessibility
-        }}
-      />
-      
-      {/* Business Navigation Screens */}
-      <Stack.Screen 
-        name="BusinessConnections" 
-        component={BusinessConnectionsScreen}
-        options={{
-          gestureEnabled: true,
-          title: 'Business Connections', // For accessibility
-          cardStyleInterpolator: ({ current }) => {
-            return {
-              cardStyle: {
-                opacity: current.progress.interpolate({
-                  inputRange: [0, 1],
-                  outputRange: [0, 1],
-                }),
-              },
-            };
-          },
-        }}
-      />
-      <Stack.Screen 
-        name="BusinessMessages" 
-        component={BusinessMessagesScreen}
-        options={{
-          gestureEnabled: true,
-          title: 'Business Messages', // For accessibility
-          cardStyleInterpolator: ({ current }) => {
-            return {
-              cardStyle: {
-                opacity: current.progress.interpolate({
-                  inputRange: [0, 1],
-                  outputRange: [0, 1],
-                }),
-              },
-            };
-          },
-        }}
-      />
-      <Stack.Screen 
-        name="BusinessAnalytics" 
-        options={{
-          gestureEnabled: true,
-          title: 'Business Analytics', // For accessibility
-          cardStyleInterpolator: ({ current }) => {
-            return {
-              cardStyle: {
-                opacity: current.progress.interpolate({
-                  inputRange: [0, 1],
-                  outputRange: [0, 1],
-                }),
-              },
-            };
-          },
-        }}
-      >
+      <Stack.Screen name="BusinessDashboard">
         {(props) => (
-          <BusinessAnalyticsScreen 
-            {...props} 
+          <BusinessDashboardScreen
+            {...props}
+            isBusinessMode={isBusinessMode}
+            onBusinessModeToggle={handleBusinessModeToggle}
+          />
+        )}
+      </Stack.Screen>
+      <Stack.Screen name="BusinessConnections">
+        {(props) => (
+          <BusinessConnectionsScreen
+            {...props}
+            isBusinessMode={isBusinessMode}
+            onBusinessModeToggle={handleBusinessModeToggle}
+          />
+        )}
+      </Stack.Screen>
+      <Stack.Screen name="BusinessMessages">
+        {(props) => (
+          <BusinessMessagesScreen
+            {...props}
             isBusinessMode={isBusinessMode}
             onBusinessModeToggle={handleBusinessModeToggle}
           />
@@ -315,36 +154,55 @@ function AppNavigator() {
 }
 
 function AppContent() {
-  const [showSplash, setShowSplash] = useState(true);
+  console.log("AppContent rendering...");
   const { loading } = useAuth();
+  const [showSplash, setShowSplash] = useState(true);
 
   const handleSplashFinish = () => {
+    console.log("Splash finished, showing main app");
     setShowSplash(false);
   };
 
+  // Add timeout fallback for splash screen
+  React.useEffect(() => {
+    const timeout = setTimeout(() => {
+      console.log("Splash timeout reached, forcing main app to show");
+      setShowSplash(false);
+    }, 5000); // 5 second maximum splash time
+
+    return () => clearTimeout(timeout);
+  }, []);
+
   return (
     <GestureHandlerRootView style={styles.container}>
-      {/* StatusBar configuration optimized for mobile */}
-      <StatusBar 
+      <StatusBar
         barStyle="light-content"
-        backgroundColor="#1E88E5" 
+        backgroundColor="#1E88E5"
         translucent={false}
         animated={true}
       />
-      
-      {showSplash ? (
-        <SplashScreen onFinish={handleSplashFinish} loading={loading} />
-      ) : (
-        <NavigationContainer>
-          <AppNavigator />
-        </NavigationContainer>
-      )}
+      <ActivityTracker>
+        {showSplash ? (
+          <SplashScreen onFinish={handleSplashFinish} loading={loading} />
+        ) : (
+          <NavigationContainer ref={navigationRef}>
+            <AppNavigator />
+          </NavigationContainer>
+        )}
+      </ActivityTracker>
       <Toast />
     </GestureHandlerRootView>
   );
 }
 
 export default function App() {
+  console.log("Main App component rendering...");
+
+  // Inject custom scrollbar styles for web on mount
+  React.useEffect(() => {
+    injectWebScrollbarStyles();
+  }, []);
+
   return (
     <SafeAreaProvider>
       <AuthProvider>
@@ -356,7 +214,37 @@ export default function App() {
 
 const styles = StyleSheet.create({
   container: {
+    ...webRootContainer,
+    backgroundColor: '#F5F7FA',
+  },
+  loadingScreen: {
     flex: 1,
-    backgroundColor: '#F5F7FA', // Match the app's background color
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#F5F7FA',
+  },
+  loadingText: {
+    fontSize: 18,
+    color: '#1E88E5',
+    fontWeight: 'bold',
+  },
+  fallbackScreen: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#F5F7FA',
+    padding: 20,
+  },
+  fallbackText: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#1E88E5',
+    marginBottom: 10,
+    textAlign: 'center',
+  },
+  fallbackSubtext: {
+    fontSize: 16,
+    color: '#666',
+    textAlign: 'center',
   },
 });

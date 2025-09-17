@@ -1,9 +1,15 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useState, useRef, useCallback } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from './supabaseClient';
 import WebRTCService from './services/WebRTCService';
+import SessionTimeoutWarning from './components/SessionTimeoutWarning';
+import { resetNavigation } from './navigationRef';
 
 const AuthContext = createContext({});
+
+// Session timeout constants - moved outside component to prevent re-creation
+const SESSION_TIMEOUT = 5 * 60 * 1000; // 5 minutes in milliseconds
+const WARNING_DURATION = 30 * 1000; // 30 seconds warning before logout
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
@@ -14,10 +20,162 @@ export const AuthProvider = ({ children }) => {
   });
   const [webRTCInitialized, setWebRTCInitialized] = useState(false);
 
+  // Session timeout management
+  const [lastActivity, setLastActivity] = useState(Date.now());
+  const [showTimeoutWarning, setShowTimeoutWarning] = useState(false);
+  const timeoutRef = useRef(null);
+  const warningRef = useRef(null);
+  const userRef = useRef(user);
+
+  // Keep userRef in sync with user state
+  useEffect(() => {
+    userRef.current = user;
+  }, [user]);
+
+  // Session timeout functions
+  const handleSessionTimeout = useCallback(async () => {
+    console.log('🔒 Session timed out due to inactivity');
+    console.log('📤 Starting logout process...');
+
+    try {
+      // Clear timeouts first
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+        timeoutRef.current = null;
+      }
+      if (warningRef.current) {
+        clearTimeout(warningRef.current);
+        warningRef.current = null;
+      }
+
+      console.log('🗑️ Clearing user state and storage...');
+
+      // Sign out from Supabase
+      await supabase.auth.signOut();
+
+      // Clear all state
+      setUser(null);
+      setConfig({ neo4jUrl: null, webhookUrl: null });
+      setShowTimeoutWarning(false);
+      await AsyncStorage.removeItem('user');
+
+      // Force navigation to Landing page
+      console.log('🔄 Forcing navigation to Landing page...');
+      resetNavigation('Landing');
+
+      console.log('✅ Logout complete - user redirected to landing page');
+    } catch (error) {
+      console.error('❌ Error during session timeout signout:', error);
+      // Force clear state even on error
+      setUser(null);
+      setConfig({ neo4jUrl: null, webhookUrl: null });
+      setShowTimeoutWarning(false);
+      // Force navigation to Landing page even on error
+      resetNavigation('Landing');
+    }
+  }, []);
+
+  const startSessionTimeout = useCallback(() => {
+    // Clear any existing timeouts
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current);
+    }
+    if (warningRef.current) {
+      clearTimeout(warningRef.current);
+    }
+
+    console.log('🕐 Starting session timeout timer - 5 minutes');
+
+    // Set timeout to show warning (SESSION_TIMEOUT - WARNING_DURATION)
+    const warningTime = SESSION_TIMEOUT - WARNING_DURATION;
+
+    warningRef.current = setTimeout(() => {
+      console.log('⏰ Session warning time reached - showing warning modal');
+      setShowTimeoutWarning(true);
+    }, warningTime);
+
+    // Set timeout for final logout (full SESSION_TIMEOUT)
+    timeoutRef.current = setTimeout(() => {
+      console.log('⏰ Session timeout reached - signing out user due to inactivity');
+      handleSessionTimeout();
+    }, SESSION_TIMEOUT);
+  }, [handleSessionTimeout]);
+
+  const resetSessionTimeout = useCallback(() => {
+    setLastActivity(Date.now());
+    if (userRef.current) {
+      startSessionTimeout();
+    }
+  }, [startSessionTimeout]);
+
+  const handleExtendSession = useCallback(() => {
+    console.log('🔄 User extended session');
+    setShowTimeoutWarning(false);
+
+    // Clear any existing timeouts
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current);
+    }
+    if (warningRef.current) {
+      clearTimeout(warningRef.current);
+    }
+
+    // Reset session timeout
+    setLastActivity(Date.now());
+    if (userRef.current) {
+      startSessionTimeout();
+    }
+  }, [startSessionTimeout]);
+
+  const handleWarningTimeout = useCallback(async () => {
+    console.log('⏰ Session timeout warning expired - user did not respond');
+    console.log('🔒 Proceeding with automatic logout...');
+    setShowTimeoutWarning(false);
+    await handleSessionTimeout();
+  }, [handleSessionTimeout]);
+
+  // Track user activity to reset timeout
+  // Stable callback that uses refs to avoid infinite loops
+  const trackActivity = useCallback(() => {
+    // Only track if user is logged in
+    if (!userRef.current) {
+      console.log('⏭️ Skipping activity tracking - no user logged in');
+      return;
+    }
+
+    console.log('👆 User activity detected - resetting session timeout timer');
+    setLastActivity(Date.now());
+
+    // Clear any existing timeouts
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current);
+      console.log('🧹 Cleared existing logout timeout');
+    }
+    if (warningRef.current) {
+      clearTimeout(warningRef.current);
+      console.log('🧹 Cleared existing warning timeout');
+    }
+
+    // Set new timeouts
+    const warningTime = SESSION_TIMEOUT - WARNING_DURATION;
+
+    warningRef.current = setTimeout(() => {
+      console.log('⏰ Session warning time reached - showing warning modal');
+      setShowTimeoutWarning(true);
+    }, warningTime);
+
+    timeoutRef.current = setTimeout(() => {
+      console.log('⏰ Session timeout reached - signing out user due to inactivity');
+      handleSessionTimeout();
+    }, SESSION_TIMEOUT);
+
+    console.log(`⏱️ New session timeout set: Warning in ${warningTime/1000}s, Logout in ${SESSION_TIMEOUT/1000}s`);
+  }, [handleSessionTimeout]);
+
   useEffect(() => {
     // Check for existing session
     checkUserSession();
-    
+
     // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
@@ -28,49 +186,137 @@ export const AuthProvider = ({ children }) => {
           await ensureUserProfile(session.user); // Ensure user profile exists
           await fetchAppConfig(); // Fetch config when user logs in
           await initializeWebRTC(session.user.id); // Initialize WebRTC service
+
+          // Session timeout will be started by the separate useEffect below
+          console.log('🕐 User logged in - session timeout will be started');
         } else {
           setUser(null);
           await AsyncStorage.removeItem('user');
           setConfig({ neo4jUrl: null, webhookUrl: null }); // Clear config on logout
           destroyWebRTC(); // Destroy WebRTC service on logout
+
+          // Clear session timeout when user logs out
+          if (timeoutRef.current) {
+            clearTimeout(timeoutRef.current);
+            timeoutRef.current = null;
+          }
+          if (warningRef.current) {
+            clearTimeout(warningRef.current);
+            warningRef.current = null;
+          }
+          setShowTimeoutWarning(false);
         }
         setLoading(false);
       }
     );
 
-    return () => subscription.unsubscribe();
+    return () => {
+      subscription.unsubscribe();
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+      }
+      if (warningRef.current) {
+        clearTimeout(warningRef.current);
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Start timeout for existing sessions
+  useEffect(() => {
+    if (user && !loading) {
+      console.log('🕐 Starting session timeout for existing session');
+      startSessionTimeout();
+    }
+  }, [user, loading, startSessionTimeout]);
 
   const checkUserSession = async () => {
     try {
-      console.log('Checking user session...');
-      
-      // First check Supabase session (most reliable)
-      const { data: { session }, error } = await supabase.auth.getSession();
+      console.log('🔍 Checking user session...');
+      setLoading(true);
+
+      // Clear any potentially stale user state first
+      setUser(null);
+
+      // First check Supabase session with timeout (most reliable)
+      const sessionPromise = supabase.auth.getSession();
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('Session check timeout')), 3000)
+      );
+
+      const { data: { session }, error } = await Promise.race([sessionPromise, timeoutPromise])
+        .catch(err => {
+          console.warn('Session check timed out or failed:', err.message);
+          return { data: { session: null }, error: err };
+        });
       
       if (error) {
-        console.error('Error getting session:', error);
+        console.error('❌ Error getting session:', error);
+        // Clear any stored data on error
+        await AsyncStorage.removeItem('user');
+        setUser(null);
+        setLoading(false);
+        return;
       }
       
-      if (session?.user) {
-        console.log('Found active session for:', session.user.email);
-        setUser(session.user);
-        await AsyncStorage.setItem('user', JSON.stringify(session.user));
-        await ensureUserProfile(session.user); // Ensure user profile exists
-        await fetchAppConfig(); // Fetch config for logged in user
-        await initializeWebRTC(session.user.id); // Initialize WebRTC service for existing session
-      } else {
-        console.log('No active session found');
-        // Check AsyncStorage as fallback
-        const storedUser = await AsyncStorage.getItem('user');
-        if (storedUser) {
-          console.log('Found stored user, but no active session - clearing storage');
+      // Validate session more thoroughly
+      if (session?.user && session?.access_token) {
+        console.log('🔍 Found session, validating token for:', session.user.email);
+        
+        // Verify the session is actually valid by making an authenticated request
+        try {
+          const { data: profileCheck, error: profileError } = await supabase
+            .from('user_profiles')
+            .select('user_id')
+            .eq('user_id', session.user.id)
+            .limit(1);
+            
+          if (profileError && profileError.message?.includes('JWT')) {
+            console.log('❌ Session token is invalid, clearing session');
+            await supabase.auth.signOut();
+            await AsyncStorage.removeItem('user');
+            setUser(null);
+            setLoading(false);
+            return;
+          }
+          
+          // Session is valid
+          console.log('✅ Session validated successfully for:', session.user.email);
+          setUser(session.user);
+          await AsyncStorage.setItem('user', JSON.stringify(session.user));
+          await ensureUserProfile(session.user);
+          await fetchAppConfig();
+          await initializeWebRTC(session.user.id);
+          
+        } catch (validationError) {
+          console.error('❌ Session validation failed:', validationError);
+          await supabase.auth.signOut();
           await AsyncStorage.removeItem('user');
+          setUser(null);
         }
+      } else {
+        console.log('❌ No valid session found (missing user or access_token)');
+
+        // Quick check and clear AsyncStorage if needed (don't block)
+        AsyncStorage.getItem('user').then(storedUser => {
+          if (storedUser) {
+            console.log('🧹 Found stale stored user data, clearing...');
+            AsyncStorage.removeItem('user');
+          }
+        });
+
+        // No need to sign out if never signed in
         setUser(null);
       }
     } catch (error) {
-      console.error('Error checking user session:', error);
+      console.error('💥 Exception during session check:', error);
+      // On any exception, clear everything and ensure signed out state
+      try {
+        await AsyncStorage.removeItem('user');
+        await supabase.auth.signOut();
+      } catch (cleanupError) {
+        console.error('Error during cleanup:', cleanupError);
+      }
       setUser(null);
     } finally {
       setLoading(false);
@@ -273,9 +519,17 @@ export const AuthProvider = ({ children }) => {
       signIn,
       signOut,
       checkUserSession,
-      fetchAppConfig
+      fetchAppConfig,
+      trackActivity
     }}>
       {children}
+      <SessionTimeoutWarning
+        visible={showTimeoutWarning}
+        onExtendSession={handleExtendSession}
+        onLogout={handleWarningTimeout}
+        onTimeout={handleWarningTimeout}
+        warningDuration={WARNING_DURATION}
+      />
     </AuthContext.Provider>
   );
 };
@@ -301,11 +555,11 @@ export const signOut = async () => {
   if (error) throw error;
 };
 
-// Export signUp function for registration
+// Export signUp function for registration (email/password based)
 export const signUp = async (phone, password, email, fullName) => {
   try {
     console.log('Attempting to sign up user:', email);
-    
+
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
@@ -317,20 +571,86 @@ export const signUp = async (phone, password, email, fullName) => {
         }
       }
     });
-    
+
     if (error) {
       console.error('Sign up error:', error);
       throw error;
     }
-    
+
     if (data.user) {
       console.log('Sign up successful for:', data.user.email);
       return data.user;
     }
-    
+
     throw new Error('Sign up failed - no user returned');
   } catch (error) {
     console.error('Sign up error:', error);
+    throw error;
+  }
+};
+
+// Export signUpWithPhone function for phone-based registration with OTP
+export const signUpWithPhone = async (phone) => {
+  try {
+    console.log('Attempting to sign up with phone:', phone);
+
+    // Format phone number to E.164 format (+1XXXXXXXXXX)
+    const formattedPhone = phone.startsWith('+')
+      ? phone
+      : '+1' + phone.replace(/\D/g, '');
+
+    console.log('Formatted phone:', formattedPhone);
+
+    // Sign up with phone - Supabase will send OTP SMS
+    const { data, error } = await supabase.auth.signInWithOtp({
+      phone: formattedPhone,
+      options: {
+        channel: 'sms',
+      }
+    });
+
+    if (error) {
+      console.error('Phone sign up error:', error);
+      throw error;
+    }
+
+    console.log('OTP sent successfully to:', formattedPhone);
+    return { success: true, phone: formattedPhone };
+  } catch (error) {
+    console.error('Phone sign up error:', error);
+    throw error;
+  }
+};
+
+// Export verifyPhoneOTP function for verifying OTP code
+export const verifyPhoneOTP = async (phone, token) => {
+  try {
+    console.log('Attempting to verify OTP for phone:', phone);
+
+    // Format phone number to E.164 format
+    const formattedPhone = phone.startsWith('+')
+      ? phone
+      : '+1' + phone.replace(/\D/g, '');
+
+    const { data, error } = await supabase.auth.verifyOtp({
+      phone: formattedPhone,
+      token: token,
+      type: 'sms',
+    });
+
+    if (error) {
+      console.error('OTP verification error:', error);
+      throw error;
+    }
+
+    if (data?.user) {
+      console.log('OTP verified successfully for user:', data.user.id);
+      return { success: true, user: data.user, session: data.session };
+    }
+
+    throw new Error('OTP verification failed - no user returned');
+  } catch (error) {
+    console.error('OTP verification error:', error);
     throw error;
   }
 };

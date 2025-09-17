@@ -1,0 +1,810 @@
+<html lang="en"><head>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html-to-image/1.11.13/html-to-image.min.js" integrity="sha512-iZ2ORl595Wx6miw+GuadDet4WQbdSWS3JLMoNfY8cRGoEFy6oT3G9IbcrBeL6AfkgpA51ETt/faX6yLV+/gFJg==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    <script>
+      (function() {
+        const originalConsole = window.console;
+        window.console = {
+          log: (...args) => {
+            originalConsole.log(...args);
+            window.parent.postMessage({ type: 'console', message: args.join(' ') }, '*');
+          },
+          error: (...args) => {
+            originalConsole.error(...args);
+            window.parent.postMessage({ type: 'console', message: 'Error: ' + args.join(' ') }, '*');
+          },
+          warn: (...args) => {
+            originalConsole.warn(...args);
+            window.parent.postMessage({ type: 'console', message: 'Warning: ' + args.join(' ') }, '*');
+          }
+        };
+
+        let requestId = 0;
+        let callbacksMap = new Map();
+        let streamControllers = new Map();
+        
+        window.claude = {
+          complete: (prompt) => {
+            return new Promise((resolve, reject) => {
+              const id = requestId++;
+              callbacksMap.set(id, { resolve, reject });
+              window.parent.postMessage({ type: 'claudeComplete', id, prompt }, '*');
+            });
+          }
+        };
+
+        window.storage = {
+          get: (key, shared = false) => {
+            return new Promise((resolve, reject) => {
+              const id = requestId++;
+              callbacksMap.set(id, { resolve, reject });
+              window.parent.postMessage({ type: 'storageGet', id, key, shared }, '*');
+            });
+          },
+          set: (key, value, shared = false) => {
+            return new Promise((resolve, reject) => {
+              const id = requestId++;
+              callbacksMap.set(id, { resolve, reject });
+              window.parent.postMessage({ type: 'storageSet', id, key, value, shared }, '*');
+            });
+          },
+          delete: (key, shared = false) => {
+            return new Promise((resolve, reject) => {
+              const id = requestId++;
+              callbacksMap.set(id, { resolve, reject });
+              window.parent.postMessage({ type: 'storageDelete', id, key, shared }, '*');
+            });
+          },
+          list: (prefix, shared = false) => {
+            return new Promise((resolve, reject) => {
+              const id = requestId++;
+              callbacksMap.set(id, { resolve, reject });
+              window.parent.postMessage({ type: 'storageList', id, prefix, shared }, '*');
+            });
+          }
+        };
+
+        let pendingBlobs = new Map();
+        URL.createObjectURL = (blob) => {
+          // Store the blob and create an ID and URL for it
+          const blobId = `blob-${Date.now()}-${Math.random()}`;
+          pendingBlobs.set(blobId, blob);
+          return `blob-request://${blobId}`;
+        };
+
+        URL.revokeObjectURL = (url) => {
+          // Remove the blob from our store
+          const blobId = url.replace("blob-request://", "");
+          pendingBlobs.delete(blobId);
+        };
+
+        const getBlobFromURL = (url) => {
+          const blobId = url.replace("blob-request://", "");
+          return pendingBlobs.get(blobId);
+        };
+
+        // Override global fetch with streaming support
+        window.fetch = (url, init = {}) => {
+          return new Promise((resolve, reject) => {
+            const id = requestId++;
+            const channelId = `fetch-${id}-${Date.now()}`;
+            
+            callbacksMap.set(id, { 
+              resolve: (response) => {
+                // Create a ReadableStream for the response body
+                const stream = new ReadableStream({
+                  start(controller) {
+                    streamControllers.set(channelId, controller);
+                  },
+                  cancel() {
+                    streamControllers.delete(channelId);
+                  }
+                });
+                
+                // Create and return the Response with the stream
+                resolve(new Response(stream, {
+                  status: response.status,
+                  statusText: response.statusText,
+                  headers: response.headers
+                }));
+              },
+              reject,
+              channelId
+            });
+            
+            window.parent.postMessage({
+              type: 'proxyFetch',
+              id,
+              url,
+              init,
+              channelId
+            }, '*');
+          });
+        };
+
+        window.addEventListener('message', async (event) => {
+          if (event.data.type === 'takeScreenshot') {
+            const rootElement = document.getElementById('artifacts-component-root-html');
+            if (!rootElement) {
+              window.parent.postMessage({
+                type: 'screenshotError',
+                error: new Error('Root element not found'),
+              }, '*');
+            }
+            const screenshot = await htmlToImage.toPng(rootElement, {
+              imagePlaceholder:
+                "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAAXNSR0IArs4c6QAAAA1JREFUGFdjePDgwX8ACOQDoNsk0PMAAAAASUVORK5CYII=",
+            });
+            window.parent.postMessage({
+              type: 'screenshotData',
+              data: screenshot,
+            }, '*');
+          } else if (event.data.type === 'claudeComplete') {
+            const callback = callbacksMap.get(event.data.id);
+            if (event.data.error) {
+              callback.reject(new Error(event.data.error));
+            } else {
+              callback.resolve(event.data.completion);
+            }
+            callbacksMap.delete(event.data.id);
+          } else if (event.data.type === 'proxyFetchResponse') {
+            const callback = callbacksMap.get(event.data.id);
+            if (event.data.error) {
+              callback.reject(new Error(event.data.error));
+              callbacksMap.delete(event.data.id);
+            } else {
+              // Initial response with headers, status, etc.
+              callback.resolve({
+                status: event.data.status,
+                statusText: event.data.statusText,
+                headers: event.data.headers
+              });
+              // Don't delete the callback yet if streaming
+              if (!event.data.body) {
+                callbacksMap.delete(event.data.id);
+              }
+            }
+          } else if (event.data.type === 'proxyFetchStream') {
+            // Handle streaming data chunks
+            const controller = streamControllers.get(event.data.channelId);
+            if (controller) {
+              if (event.data.error) {
+                controller.error(new Error(event.data.error));
+                streamControllers.delete(event.data.channelId);
+              } else if (event.data.done) {
+                controller.close();
+                streamControllers.delete(event.data.channelId);
+                // Clean up the callback
+                const callback = Array.from(callbacksMap.entries()).find(
+                  ([_, value]) => value.channelId === event.data.channelId
+                );
+                if (callback) {
+                  callbacksMap.delete(callback[0]);
+                }
+              } else if (event.data.chunk) {
+                controller.enqueue(new Uint8Array(event.data.chunk));
+              }
+            }
+          } else if (event.data.type === 'storageGet') {
+            const callback = callbacksMap.get(event.data.id);
+            if (event.data.error) {
+              callback.reject(new Error(event.data.error));
+            } else {
+              callback.resolve(event.data.result);
+            }
+            callbacksMap.delete(event.data.id);
+          } else if (event.data.type === 'storageSet') {
+            const callback = callbacksMap.get(event.data.id);
+            if (event.data.error) {
+              callback.reject(new Error(event.data.error));
+            } else {
+              callback.resolve(event.data.result);
+            }
+            callbacksMap.delete(event.data.id);
+          } else if (event.data.type === 'storageDelete') {
+            const callback = callbacksMap.get(event.data.id);
+            if (event.data.error) {
+              callback.reject(new Error(event.data.error));
+            } else {
+              callback.resolve(event.data.result);
+            }
+            callbacksMap.delete(event.data.id);
+          } else if (event.data.type === 'storageList') {
+            const callback = callbacksMap.get(event.data.id);
+            if (event.data.error) {
+              callback.reject(new Error(event.data.error));
+            } else {
+              callback.resolve(event.data.result);
+            }
+            callbacksMap.delete(event.data.id);
+          }
+        });
+
+        window.addEventListener('click', (event) => {
+          const isEl = event.target instanceof HTMLElement;
+          if (!isEl) return;
+    
+          // find ancestor links
+          const linkEl = event.target.closest("a");
+          if (!linkEl || !linkEl.href) return;
+    
+          event.preventDefault();
+          event.stopImmediatePropagation();
+    
+          if (linkEl.href.startsWith("blob-request:")) {
+            const blob = getBlobFromURL(linkEl.href);
+            if (!blob) return;
+            void blob.arrayBuffer().then((data) => {
+              window.parent.postMessage({
+                type: "downloadFile",
+                filename: linkEl.download,
+                data,
+                mimeType: blob.type || "application/octet-stream",
+              });
+            });
+          } else if (linkEl.href.startsWith("data:")) {
+            const [header, base64Data] = linkEl.href.split(",");
+            const mimeMatch = header.match(/data:([^;]+)/);
+            const mimeType = mimeMatch ? mimeMatch[1] : "application/octet-stream";
+            const binaryString = atob(base64Data);
+            const data = Uint8Array.from(binaryString, (c) =>
+              c.charCodeAt(0),
+            ).buffer;
+            window.parent.postMessage({
+              type: "downloadFile",
+              filename: linkEl.download,
+              data,
+              mimeType,
+            });
+          } else {
+            let linkUrl;
+            try {
+              linkUrl = new URL(linkEl.href);
+            } catch (error) {
+              return;
+            }
+    
+            if (linkUrl.hostname === window.location.hostname) return;
+      
+            window.parent.postMessage({
+              type: 'openExternal',
+              href: linkEl.href,
+            }, '*');
+          }
+      });
+
+        const originalOpen = window.open;
+        window.open = function (url) {
+          window.parent.postMessage({
+            type: "openExternal",
+            href: url,
+          }, "*");
+        };
+
+        window.addEventListener('error', (event) => {
+          window.parent.postMessage({ type: 'console', message: 'Uncaught Error: ' + event.message }, '*');
+        });
+      })();
+    </script>
+  
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LinkedBySix - ADP Investor Pitch</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #0066cc;
+            overflow: hidden;
+            height: 100vh;
+        }
+
+        .presentation {
+            width: 100%;
+            height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+        }
+
+        .slide {
+            background: white;
+            width: 90%;
+            max-width: 1200px;
+            height: 85vh;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            padding: 60px 80px;
+            display: none;
+            flex-direction: column;
+            justify-content: center;
+            position: relative;
+            animation: slideIn 0.5s ease-out;
+        }
+
+        .slide.active {
+            display: flex;
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateX(50px);
+            }
+            to {
+                opacity: 1;
+                transform: translateX(0);
+            }
+        }
+
+        h1 {
+            font-size: 3.5em;
+            color: #0066cc;
+            margin-bottom: 20px;
+            font-weight: 700;
+        }
+
+        h2 {
+            font-size: 2.5em;
+            color: #0066cc;
+            margin-bottom: 30px;
+            font-weight: 600;
+        }
+
+        h3 {
+            font-size: 1.8em;
+            color: #0066cc;
+            margin-bottom: 20px;
+            font-weight: 600;
+        }
+
+        p {
+            font-size: 1.3em;
+            line-height: 1.6;
+            color: #555;
+            margin-bottom: 20px;
+        }
+
+        .subtitle {
+            font-size: 1.5em;
+            color: #0066cc;
+            font-weight: 500;
+        }
+
+        ul {
+            list-style: none;
+            margin: 20px 0;
+        }
+
+        li {
+            font-size: 1.3em;
+            color: #555;
+            margin: 15px 0;
+            padding-left: 30px;
+            position: relative;
+            line-height: 1.5;
+        }
+
+        li:before {
+            content: "→";
+            position: absolute;
+            left: 0;
+            color: #0066cc;
+            font-weight: bold;
+        }
+
+        .highlight {
+            background: linear-gradient(120deg, #e3f2fd 0%, #bbdefb 100%);
+            padding: 30px;
+            border-radius: 15px;
+            margin: 20px 0;
+        }
+
+        .highlight h3 {
+            color: #333;
+        }
+
+        .navigation {
+            position: fixed;
+            bottom: 40px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            gap: 20px;
+            z-index: 1000;
+        }
+
+        button {
+            background: white;
+            border: none;
+            padding: 15px 30px;
+            border-radius: 50px;
+            font-size: 1.1em;
+            cursor: pointer;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+            transition: all 0.3s ease;
+            font-weight: 600;
+            color: #0066cc;
+        }
+
+        button:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 8px 20px rgba(0,0,0,0.3);
+            background: #0066cc;
+            color: white;
+        }
+
+        button:disabled {
+            opacity: 0.3;
+            cursor: not-allowed;
+        }
+
+        .slide-number {
+            position: absolute;
+            bottom: 20px;
+            right: 30px;
+            color: #999;
+            font-size: 1em;
+        }
+
+        .logo {
+            position: absolute;
+            top: 30px;
+            right: 30px;
+            font-size: 1.2em;
+            font-weight: 700;
+            color: #0066cc;
+        }
+
+        .slide:first-child .logo {
+            display: none;
+        }
+
+        .export-buttons {
+            position: fixed;
+            top: 40px;
+            right: 40px;
+            display: flex;
+            gap: 10px;
+            z-index: 2000;
+        }
+
+        .export-btn {
+            background: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 8px;
+            font-size: 0.9em;
+            cursor: pointer;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+            transition: all 0.3s ease;
+            font-weight: 600;
+            color: #0066cc;
+        }
+
+        .export-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+        }
+
+        .network-logo {
+            width: 120px;
+            height: 120px;
+            margin: 0 auto;
+        }
+
+        .title-logo {
+            width: 200px;
+            height: 200px;
+            margin: 30px auto;
+        }
+
+        .two-column {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 40px;
+            margin: 20px 0;
+        }
+
+        .box {
+            background: #f8f9fa;
+            padding: 25px;
+            border-radius: 12px;
+            border-left: 5px solid #0066cc;
+        }
+
+        .box h4 {
+            color: #0066cc;
+            font-size: 1.4em;
+            margin-bottom: 15px;
+        }
+
+        .box p {
+            font-size: 1.1em;
+            margin: 0;
+        }
+
+        .cta {
+            background: #0066cc;
+            color: white;
+            padding: 40px;
+            border-radius: 15px;
+            text-align: center;
+            margin-top: 30px;
+        }
+
+        .cta h3 {
+            color: white;
+            margin-bottom: 15px;
+        }
+
+        .cta p {
+            color: white;
+            font-size: 1.2em;
+        }
+    </style>
+</head>
+<body id="artifacts-component-root-html">
+    <div class="presentation">
+        <div class="export-buttons">
+            <button class="export-btn" onclick="downloadHTML()">📥 Download HTML</button>
+            <button class="export-btn" onclick="exportToPDF()">📄 Export PDF</button>
+        </div>
+        
+        <!-- Slide 1: Title -->
+        <div class="slide active">
+            <div class="logo">Linked By Six</div>
+            <img src="https://i.imgur.com/hERSirT.jpg" class="title-logo" alt="Linked By Six Logo" onerror="this.style.display='none'" style="display: none;">
+            <h1>Linked By Six</h1>
+            <p class="subtitle">Connecting People to Businesses Through Their Network</p>
+            <p style="margin-top: 40px; font-size: 1.4em;">A Strategic Investment &amp; Partnership Opportunity for ADP</p>
+        </div>
+
+        <!-- Slide 2: The Problem -->
+        <div class="slide">
+            <div class="logo">Linked By Six</div>
+            <h2>The Problem</h2>
+            <p>Consumers struggle to find trustworthy businesses and service providers</p>
+            <ul>
+                <li>Traditional directories lack personal trust signals</li>
+                <li>Online reviews can be fake or manipulated (especially on email-based platforms)</li>
+                <li>Word-of-mouth recommendations are powerful but limited to immediate contacts</li>
+                <li>Businesses waste resources on broad, untargeted marketing</li>
+                <li>Consumers often pay higher prices without personal connections</li>
+            </ul>
+            <p style="margin-top: 30px; font-weight: 600; color: #0066cc;">Result: Consumers make uninformed decisions and miss out on better service and pricing, while businesses lose qualified leads</p>
+            <div class="slide-number">2 / 10</div>
+        </div>
+
+        <!-- Slide 3: The Solution -->
+        <div class="slide">
+            <div class="logo">Linked By Six</div>
+            <h2>The Linked By Six Solution</h2>
+            <p style="font-size: 1.5em; color: #0066cc; font-weight: 600; margin-bottom: 30px;">Leveraging the Power of Six Degrees of Separation</p>
+            <p>Linked By Six is a C2B platform that connects consumers to businesses through their personal network relationships</p>
+            <ul>
+                <li>Users discover businesses through trusted connections in their extended network</li>
+                <li>Personal relationships unlock better service and better pricing for consumers</li>
+                <li>Phone number authentication substantially reduces fake reviews (unlike email-based platforms)</li>
+                <li>Businesses gain access to warm, qualified leads with built-in trust</li>
+                <li>One-stop shop: Lead generation + business operations tools + customer service solutions</li>
+                <li>Transform cold outreach into warm introductions</li>
+            </ul>
+            <div class="slide-number">3 / 10</div>
+        </div>
+
+        <!-- Slide 4: How It Works -->
+        <div class="slide">
+            <div class="logo">Linked By Six</div>
+            <h2>How It Works</h2>
+            <img src="https://i.imgur.com/hERSirT.jpg" class="network-logo" alt="Linked By Six Logo" onerror="this.style.display='none'" style="display: none;">
+            <div class="two-column">
+                <div class="box">
+                    <h4>For Consumers</h4>
+                    <p>Search for services they need and see which businesses connect to them through their network of friends, family, and colleagues</p>
+                </div>
+                <div class="box">
+                    <h4>For Businesses</h4>
+                    <p>Subscribe to appear in directory, access lead generation tools, and leverage operational efficiency features</p>
+                </div>
+            </div>
+            <div class="highlight">
+                <h3>The Six Degrees Advantage</h3>
+                <p>Customers receive better service and better prices by leveraging personal relationships. Phone number authentication drastically reduces fake reviews compared to email-based review platforms. Every connection comes with built-in social proof and trust, dramatically increasing conversion rates compared to traditional directories</p>
+            </div>
+            <div class="slide-number">4 / 10</div>
+        </div>
+
+        <!-- Slide 5: Business Model -->
+        <div class="slide">
+            <div class="logo">Linked By Six</div>
+            <h2>Business Model</h2>
+            <h3>B2B SaaS Subscription Revenue</h3>
+            <p>Businesses pay recurring subscriptions for:</p>
+            <ul>
+                <li>Directory placement based on personal relationships businesses create</li>
+                <li>Employee seat licenses - allowing customers to leverage relationships with employees</li>
+                <li>Lead generation and customer acquisition tools</li>
+                <li>Business operations and efficiency solutions</li>
+                <li>Enhanced customer service capabilities</li>
+                <li>Analytics and insights on network connections</li>
+            </ul>
+            <p style="margin-top: 30px; font-weight: 600;">Scalable, predictable recurring revenue with low customer acquisition cost due to network effects and relationship-based placement model</p>
+            <div class="slide-number">5 / 10</div>
+        </div>
+
+        <!-- Slide 6: Market Opportunity -->
+        <div class="slide">
+            <div class="logo">Linked By Six</div>
+            <h2>Market Opportunity</h2>
+            <p style="font-size: 1.4em; margin-bottom: 25px;">Massive addressable market at the intersection of multiple growing sectors:</p>
+            <ul>
+                <li>Business directory and lead generation market</li>
+                <li>Small and medium business software tools</li>
+                <li>Social networking and trusted recommendation platforms</li>
+                <li>Customer relationship management solutions</li>
+            </ul>
+            <div class="highlight">
+                <h3>Key Market Dynamics</h3>
+                <p>SMBs increasingly need integrated solutions that combine marketing, operations, and customer service. Linked By Six delivers all three powered by trusted network connections.</p>
+            </div>
+            <div class="slide-number">6 / 10</div>
+        </div>
+
+        <!-- Slide 7: Why ADP -->
+        <div class="slide">
+            <div class="logo">Linked By Six</div>
+            <h2>Why ADP?</h2>
+            <h3>Perfect Strategic Alignment</h3>
+            <div class="two-column">
+                <div class="box">
+                    <h4>ADP's Assets</h4>
+                    <p>Massive base of business clients already using ADP for payroll, HR, and workforce management</p>
+                </div>
+                <div class="box">
+                    <h4>Linked By Six's Value</h4>
+                    <p>Lead generation and customer acquisition tools that drive business growth for ADP clients</p>
+                </div>
+            </div>
+            <div class="highlight" style="margin-top: 30px;">
+                <h3>Value-Added Service for ADP</h3>
+                <p>Linked By Six becomes a premium value-added service ADP can offer to their current business portfolio - strengthening client relationships, increasing retention, and creating new revenue streams</p>
+            </div>
+            <p style="margin-top: 30px; font-size: 1.4em; font-weight: 600; color: #0066cc;">ADP clients need customers. Linked By Six delivers qualified leads through trusted networks.</p>
+            <div class="slide-number">7 / 10</div>
+        </div>
+
+        <!-- Slide 8: Partnership Vision -->
+        <div class="slide">
+            <div class="logo">Linked By Six</div>
+            <h2>Strategic Partnership Vision</h2>
+            <h3>Integrated Platform Approach</h3>
+            <p style="font-size: 1.4em; margin-bottom: 25px;">Embed ADP services directly within Linked By Six:</p>
+            <ul>
+                <li>ADP payroll tools integrated into Linked By Six business dashboard</li>
+                <li>HR management features available to Linked By Six subscribers</li>
+                <li>Workforce management solutions as premium add-ons</li>
+                <li>Seamless experience: Find customers AND manage operations in one platform</li>
+            </ul>
+            <div class="highlight">
+                <h3>Win-Win Integration</h3>
+                <p>ADP expands its SMB reach, Linked By Six becomes a more complete business solution. Both platforms become stickier and more valuable.</p>
+            </div>
+            <div class="slide-number">8 / 10</div>
+        </div>
+
+        <!-- Slide 9: Traction -->
+        <div class="slide">
+            <div class="logo">Linked By Six</div>
+            <h2>Traction &amp; Validation</h2>
+            <p style="font-size: 1.3em; margin-bottom: 30px;">Linked By Six has demonstrated product-market fit:</p>
+            <ul>
+                <li>Investor video showcasing user and business benefits completed</li>
+                <li>Platform demonstrates clear value proposition for both sides of marketplace</li>
+                <li>Ready to scale with strategic partner and investment</li>
+                <li>[Add your specific metrics: users, businesses, revenue, engagement, etc.]</li>
+            </ul>
+            <p style="margin-top: 40px; font-style: italic; color: #0066cc;">This is the ideal time for ADP to invest before Linked By Six achieves broader market penetration</p>
+            <div class="slide-number">9 / 10</div>
+        </div>
+
+        <!-- Slide 10: The Ask -->
+        <div class="slide">
+            <div class="logo">Linked By Six</div>
+            <h2>The Ask</h2>
+            <p style="font-size: 1.5em; margin-bottom: 40px; font-weight: 600; color: #0066cc;">We're seeking a comprehensive strategic partnership with ADP:</p>
+            
+            <div class="two-column">
+                <div class="box">
+                    <h4>💰 Investment</h4>
+                    <p>Capital to accelerate growth and platform development</p>
+                </div>
+                <div class="box">
+                    <h4>🤝 Partnership</h4>
+                    <p>Integration of ADP services within Linked By Six platform</p>
+                </div>
+            </div>
+            
+            <div class="box" style="margin-top: 20px;">
+                <h4>👥 Client Access</h4>
+                <p>Introduction to ADP's business client base to rapidly scale Linked By Six adoption</p>
+            </div>
+
+            <div class="cta">
+                <h3>Let's Build the Future Together</h3>
+                <p>Linked By Six + ADP: Connecting businesses to customers and empowering operations</p>
+            </div>
+            <div class="slide-number">10 / 10</div>
+        </div>
+    </div>
+
+    <div class="navigation">
+        <button id="prevBtn" onclick="changeSlide(-1)" disabled="">← Previous</button>
+        <button id="nextBtn" onclick="changeSlide(1)">Next →</button>
+    </div>
+
+    <script>
+        let currentSlide = 0;
+        const slides = document.querySelectorAll('.slide');
+        const totalSlides = slides.length;
+
+        function showSlide(n) {
+            slides[currentSlide].classList.remove('active');
+            currentSlide = (n + totalSlides) % totalSlides;
+            slides[currentSlide].classList.add('active');
+            
+            document.getElementById('prevBtn').disabled = currentSlide === 0;
+            document.getElementById('nextBtn').disabled = currentSlide === totalSlides - 1;
+        }
+
+        function changeSlide(direction) {
+            showSlide(currentSlide + direction);
+        }
+
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'ArrowLeft') changeSlide(-1);
+            if (e.key === 'ArrowRight') changeSlide(1);
+        });
+
+        showSlide(0);
+
+        function downloadHTML() {
+            const htmlContent = document.documentElement.outerHTML;
+            const blob = new Blob([htmlContent], { type: 'text/html' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'LinkedBySix-ADP-Presentation.html';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }
+
+        function exportToPDF() {
+            // Hide navigation buttons and export buttons for PDF
+            document.querySelector('.navigation').style.display = 'none';
+            document.querySelector('.export-buttons').style.display = 'none';
+            
+            // Show instructions
+            const message = 'To export as PDF:\n\n1. In the print dialog that opens, select "Save as PDF" as the printer\n2. Adjust settings if needed\n3. Click Save\n\nNote: Only the current slide will be captured. Navigate through slides and print each one separately for a full deck, or use the Download HTML option to keep the full interactive presentation.';
+            
+            setTimeout(() => {
+                alert(message);
+                window.print();
+                
+                // Restore buttons after print dialog closes
+                setTimeout(() => {
+                    document.querySelector('.navigation').style.display = 'flex';
+                    document.querySelector('.export-buttons').style.display = 'flex';
+                }, 1000);
+            }, 100);
+        }
+    </script>
+
+</body></html>

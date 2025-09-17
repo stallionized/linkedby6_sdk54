@@ -1,0 +1,40 @@
+{
+  "expo": {
+    "name": "Linked By Six",
+    "slug": "linked-by-six",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "newArchEnabled": true,
+    "scheme": "linkedbysix",
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#020408"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.linkedbysix.app"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#020408"
+      },
+      "edgeToEdgeEnabled": true,
+      "package": "com.linkedbysix.app"
+    },
+    "web": {
+      "favicon": "./assets/favicon.png",
+      "bundler": "metro"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-font"
+    ],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}

@@ -29,7 +29,7 @@ import MobileBusinessNavigation from './MobileBusinessNavigation';
 
 const relationshipOptions = ['Customer', 'Friend', 'Colleague', 'Family', 'Partner'];
 
-const BusinessConnectionsScreen = ({ navigation, route }) => {
+const BusinessConnectionsScreen = ({ navigation, route, isBusinessMode, onBusinessModeToggle }) => {
   const [contacts, setContacts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [userId, setUserId] = useState(null);
@@ -331,7 +331,7 @@ const BusinessConnectionsScreen = ({ navigation, route }) => {
         const currentUserId = session?.user?.id;
         
         if (!currentUserId) {
-          console.error('No user is logged in');
+          console.log('No user is logged in - component will not fetch data');
           setLoading(false);
           return;
         }
@@ -392,10 +392,12 @@ const BusinessConnectionsScreen = ({ navigation, route }) => {
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <StatusBar style="dark" />
-      <MobileHeader 
-        navigation={navigation} 
-        title="Connections" 
+      <MobileHeader
+        navigation={navigation}
+        title="Connections"
         showBackButton={false}
+        isBusinessMode={isBusinessMode}
+        onBusinessModeToggle={onBusinessModeToggle}
         rightActions={[
           { icon: 'add', onPress: () => setShowAddContactSlider(true) },
           { icon: 'cloud-upload-outline', onPress: importDeviceContacts }

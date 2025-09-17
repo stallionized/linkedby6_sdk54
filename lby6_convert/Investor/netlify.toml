@@ -1,0 +1,31 @@
+[build]
+  command = "echo 'Using pre-built files'"
+  publish = "MyExpoApp/dist"
+
+[[redirects]]
+  from = "/presentation"
+  to = "/presentations/ADP-Presentation.html"
+  status = 200
+
+[[redirects]]
+  from = "/adp-app"
+  to = "/adp-deeplink.html"
+  status = 200
+
+[[redirects]]
+  from = "/investors/adp.js"
+  to = "/investors/adp.html"
+  status = 200
+
+# Serve static HTML files directly
+[[redirects]]
+  from = "/investors/adp.html"
+  to = "/investors/adp.html"
+  status = 200
+  force = true
+
+# Catch-all redirect for SPA
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200

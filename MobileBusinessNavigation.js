@@ -61,11 +61,11 @@ const MobileBusinessNavigation = ({
   const getBusinessNavigationTabs = () => {
     return [
       {
-        id: 'Dashboard',
-        icon: 'dashboard',
+        id: 'Analytics',
+        icon: 'analytics',
         iconType: 'MaterialIcons',
-        route: 'BusinessDashboard',
-        label: 'Dashboard'
+        route: 'BusinessAnalytics',
+        label: 'Analytics'
       },
       {
         id: 'Contacts',
@@ -75,18 +75,11 @@ const MobileBusinessNavigation = ({
         label: 'Contacts'
       },
       {
-        id: 'Orders',
-        icon: 'receipt-long',
+        id: 'Dashboard',
+        icon: 'dashboard',
         iconType: 'MaterialIcons',
-        route: 'BusinessOrders',
-        label: 'Orders'
-      },
-      {
-        id: 'Analytics',
-        icon: 'analytics',
-        iconType: 'MaterialIcons',
-        route: 'BusinessAnalytics',
-        label: 'Analytics'
+        route: 'BusinessDashboard',
+        label: 'Dashboard'
       },
       {
         id: 'Messages',

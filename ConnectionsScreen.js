@@ -18,7 +18,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Picker } from '@react-native-picker/picker';
-import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import * as Contacts from 'expo-contacts';
 // import { generateQRCode } from './utils/qrCodeUtils'; // You'll need to create this utility
 import AddContactSlider from './AddContactSlider';
@@ -133,14 +133,14 @@ const ConnectionsScreen = ({ navigation, route }) => {
               style={contactCardStyles.profileButton}
               onPress={() => onViewRecommendations(contact)}
             >
-              <Icon name="account-outline" size={16} color="#fff" />
+              <MaterialCommunityIcons name="account-outline" size={16} color="#fff" />
             </TouchableOpacity>
           )}
           <TouchableOpacity 
             style={contactCardStyles.editButton}
             onPress={() => onEdit(contact)}
           >
-            <Icon name="pencil" size={16} color="#fff" />
+            <MaterialCommunityIcons name="pencil" size={16} color="#fff" />
           </TouchableOpacity>
         </View>
       </TouchableOpacity>
@@ -331,7 +331,7 @@ const ConnectionsScreen = ({ navigation, route }) => {
         const currentUserId = session?.user?.id;
         
         if (!currentUserId) {
-          console.error('No user is logged in');
+          console.log('No user is logged in - component will not fetch data');
           setLoading(false);
           return;
         }

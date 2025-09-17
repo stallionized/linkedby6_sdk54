@@ -28,9 +28,21 @@ import { useFocusEffect } from '@react-navigation/native';
 import MobileBottomNavigation from './MobileBottomNavigation';
 import BusinessProfileSlider from './BusinessProfileSlider';
 import AddToProjectSlider from './AddToProjectSlider';
+import BusinessLogoInitials from './components/BusinessLogoInitials';
 import MobileHeader from './MobileHeader';
 import ConnectionGraphDisplay from './ConnectionGraphDisplay';
 import ConnectionsDetailSlider from './ConnectionsDetailSlider';
+
+// Import Edge Function search service (NEW!)
+import {
+  performConversationalSearch,
+  buildConversationHistory,
+  extractBusinessIds,
+  isClarificationResponse,
+} from './utils/searchService';
+
+// Import web scroll styles
+import { webRootContainer, webScrollContainer, webScrollView, webScrollContent } from './utils/webScrollStyles';
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 
@@ -70,117 +82,15 @@ const getColorFromName = (name) => {
   return colors[index];
 };
 
-// Business Logo Component
+// Business Logo Component - now uses BusinessLogoInitials with 2-letter fallback
 const BusinessLogo = ({ business }) => {
-  const [bgColor, setBgColor] = useState(getColorFromName(business.business_name || 'Business'));
-  const [imageLoaded, setImageLoaded] = useState(false);
-  
-  // Function to extract dominant color from image
-  const extractDominantColor = async (imageUri) => {
-    try {
-      // For now, we'll use a smart color extraction based on the business name and industry
-      // This provides better color matching than random colors
-      const businessName = business.business_name?.toLowerCase() || '';
-      const industry = business.industry?.toLowerCase() || '';
-      
-      // Define color mappings for common business types
-      const colorMappings = {
-        // Automotive
-        'auto': '#1E3A8A', 'car': '#1E3A8A', 'automotive': '#1E3A8A', 'dealership': '#1E3A8A',
-        'leasing': '#0F172A', 'rental': '#374151',
-        
-        // Technology
-        'tech': '#3B82F6', 'software': '#3B82F6', 'digital': '#3B82F6', 'it': '#3B82F6',
-        
-        // Food & Restaurant
-        'restaurant': '#DC2626', 'food': '#DC2626', 'cafe': '#92400E', 'bakery': '#D97706',
-        
-        // Health & Medical
-        'medical': '#059669', 'health': '#059669', 'dental': '#059669', 'clinic': '#059669',
-        
-        // Finance
-        'bank': '#1E40AF', 'finance': '#1E40AF', 'insurance': '#1E40AF', 'investment': '#1E40AF',
-        
-        // Real Estate
-        'real estate': '#7C2D12', 'property': '#7C2D12', 'construction': '#92400E',
-        
-        // Retail
-        'retail': '#7C3AED', 'store': '#7C3AED', 'shop': '#7C3AED', 'boutique': '#7C3AED',
-        
-        // Services
-        'consulting': '#374151', 'service': '#374151', 'agency': '#374151',
-        
-        // Default colors for specific business names
-        'fast lane': '#0F172A', // Dark color for Fast Lane Leasing
-      };
-      
-      // Check for specific business name matches first
-      for (const [key, color] of Object.entries(colorMappings)) {
-        if (businessName.includes(key)) {
-          return color;
-        }
-      }
-      
-      // Check industry matches
-      for (const [key, color] of Object.entries(colorMappings)) {
-        if (industry.includes(key)) {
-          return color;
-        }
-      }
-      
-      // Fallback to original color generation but with better colors
-      const betterColors = [
-        '#1E3A8A', '#DC2626', '#059669', '#7C2D12', '#7C3AED',
-        '#0F172A', '#374151', '#92400E', '#1E40AF', '#BE185D'
-      ];
-      
-      let hash = 0;
-      const nameToHash = businessName || 'business';
-      for (let i = 0; i < nameToHash.length; i++) {
-        hash = nameToHash.charCodeAt(i) + ((hash << 5) - hash);
-      }
-      const index = Math.abs(hash) % betterColors.length;
-      return betterColors[index];
-      
-    } catch (error) {
-      console.log('Error extracting color, using fallback');
-      return getColorFromName(business.business_name || 'Business');
-    }
-  };
-  
-  // Update background color when image loads
-  const handleImageLoad = async () => {
-    setImageLoaded(true);
-    if (business.image_url) {
-      const dominantColor = await extractDominantColor(business.image_url);
-      setBgColor(dominantColor);
-    }
-  };
-  
-  // Set initial color based on business info
-  React.useEffect(() => {
-    const setInitialColor = async () => {
-      const smartColor = await extractDominantColor(business.image_url);
-      setBgColor(smartColor);
-    };
-    setInitialColor();
-  }, [business.business_name, business.industry]);
-  
   return (
-    <View style={[styles.businessLogo, { backgroundColor: bgColor }]}>
-      {business.image_url ? (
-        <Image 
-          source={{ uri: business.image_url }} 
-          style={styles.businessLogoImage}
-          onLoad={handleImageLoad}
-          onError={() => setImageLoaded(false)}
-        />
-      ) : (
-        <Text style={styles.businessLogoText}>
-          {business.business_name ? business.business_name.charAt(0).toUpperCase() : 'B'}
-        </Text>
-      )}
-    </View>
+    <BusinessLogoInitials
+      businessName={business.business_name}
+      imageUrl={business.image_url}
+      backgroundColor={business.logo_dominant_color}
+      size={72}
+    />
   );
 };
 
@@ -209,22 +119,24 @@ const BusinessCard = ({
           {business.industry && (
             <Text style={styles.businessIndustry} numberOfLines={1}>{business.industry}</Text>
           )}
-          <View style={styles.businessLocation}>
-            <Ionicons name="location-outline" size={14} color={colors.textMedium} />
-            <Text style={styles.businessLocationText} numberOfLines={1}>
-              {business.city && business.state ? `${business.city}, ${business.state}` : 
-               business.zip_code || 'Location not specified'}
-            </Text>
-          </View>
-          
-          {/* Coverage Info */}
-          {business.coverage_type && (
+
+          {/* Show location only if coverage is local or not set */}
+          {(!business.coverage_type || business.coverage_type === 'local') && (
+            <View style={styles.businessLocation}>
+              <Ionicons name="location-outline" size={14} color={colors.textMedium} />
+              <Text style={styles.businessLocationText} numberOfLines={1}>
+                {business.city && business.state ? `${business.city}, ${business.state}` :
+                 business.zip_code || 'Location not specified'}
+              </Text>
+            </View>
+          )}
+
+          {/* Show coverage info only if regional or national */}
+          {business.coverage_type && (business.coverage_type === 'regional' || business.coverage_type === 'national') && (
             <View style={styles.coverageInfo}>
               <Ionicons name="business-outline" size={12} color={colors.textMedium} />
               <Text style={styles.coverageText}>
                 {business.coverage_type.charAt(0).toUpperCase() + business.coverage_type.slice(1)}
-                {business.coverage_type === 'local' && business.coverage_radius && 
-                  ` (${business.coverage_radius}mi)`}
               </Text>
             </View>
           )}
@@ -349,8 +261,6 @@ const SearchScreen = ({ navigation, route, isBusinessMode, onBusinessModeToggle 
   const [messages, setMessages] = useState([]);
   const [inputText, setInputText] = useState('');
   const [isTyping, setIsTyping] = useState(false);
-  const [ms2WebhookUrl, setMs2WebhookUrl] = useState('');
-  const [isLoadingSettings, setIsLoadingSettings] = useState(false);
   const [error, setError] = useState(null);
   const [sessionId, setSessionId] = useState('');
   const [businessProfiles, setBusinessProfiles] = useState([]);
@@ -392,7 +302,6 @@ const SearchScreen = ({ navigation, route, isBusinessMode, onBusinessModeToggle 
     setRecommendedBusinessIds([]);
     setConnectionPaths({});
     setSessionId('');
-    setMs2WebhookUrl('');
     setIsTyping(false);
     setError(null);
     setLoadingPaths({});
@@ -567,67 +476,35 @@ const SearchScreen = ({ navigation, route, isBusinessMode, onBusinessModeToggle 
 
   // Handle initial query from route params
   useEffect(() => {
-    if (ms2WebhookUrl && route?.params?.initialQuery) {
+    if (route?.params?.initialQuery && hasInitialized) {
       const query = route.params.initialQuery;
       setInputText(query);
-      setTimeout(() => { 
-        if (query && query.trim()) handleSendMessage(query); 
+      setTimeout(() => {
+        if (query && query.trim()) handleSendMessage(query);
       }, 500);
     }
-  }, [route?.params?.initialQuery, ms2WebhookUrl]);
+  }, [route?.params?.initialQuery, hasInitialized]);
 
   // Initialize screen state when user is loaded
   useEffect(() => {
     if (!currentUserId || hasInitialized) return;
-    
+
     console.log('Initializing search screen for user:', currentUserId);
-    
-    setIsLoadingSettings(true);
+
     setError(null);
     
     const newSessionId = `session_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
     setSessionId(newSessionId);
     console.log('Generated new session ID:', newSessionId);
     
-    setMessages([{ 
-      _id: `welcome_${Date.now()}`, 
-      text: "Welcome! Ask me anything about businesses or services you're looking for.", 
-      createdAt: new Date(), 
-      type: 'system' 
+    setMessages([{
+      _id: `welcome_${Date.now()}`,
+      text: "Welcome! Ask me anything about businesses or services you're looking for.",
+      createdAt: new Date(),
+      type: 'system'
     }]);
-    
-    const fetchMS2WebhookUrl = async () => {
-      try {
-        const { data, error } = await supabase
-          .from('global_settings')
-          .select('value')
-          .eq('key', 'ms2_webhook_url')
-          .single();
-          
-        if (error) {
-          console.error('Error fetching MS2 Webhook URL:', error);
-          setError('Error fetching webhook configuration.');
-          setIsLoadingSettings(false);
-          return;
-        }
-        
-        if (data && data.value) {
-          setMs2WebhookUrl(data.value);
-          setError(null);
-          console.log('✅ MS2 Webhook URL loaded successfully');
-        } else {
-          console.warn('MS2 Webhook URL not found in settings.');
-          setError('Webhook URL not configured.');
-        }
-      } catch (err) {
-        console.error('Error fetching MS2 Webhook URL:', err.message);
-        setError('Failed to load webhook configuration.');
-      } finally {
-        setIsLoadingSettings(false);
-      }
-    };
-    
-    fetchMS2WebhookUrl();
+
+    // ✅ No more webhook configuration needed - using Edge Functions!
     setHasInitialized(true);
     
   }, [currentUserId, hasInitialized]);
@@ -636,172 +513,83 @@ const SearchScreen = ({ navigation, route, isBusinessMode, onBusinessModeToggle 
   const handleSendMessage = async (text) => {
     const messageText = text || inputText;
     if (!messageText.trim() || isTyping) return;
-    
-    const userMessage = { 
-      _id: Date.now().toString(), 
-      text: messageText.trim(), 
-      createdAt: new Date(), 
-      type: 'user' 
+
+    const userMessage = {
+      _id: Date.now().toString(),
+      text: messageText.trim(),
+      createdAt: new Date(),
+      type: 'user',
     };
-    
-    if (!ms2WebhookUrl) {
-      console.warn('Cannot send message: MS2 Webhook URL is not configured.');
-      const errorMessage = { 
-        _id: Date.now().toString(), 
-        text: "Error: Chat feature requires configuration. Please contact support.", 
-        createdAt: new Date(), 
-        type: 'error' 
-      };
-      setMessages(prev => [...prev, errorMessage]);
-      return;
-    }
-    
-    setMessages(prev => [...prev, userMessage]);
+
+    setMessages((prev) => [...prev, userMessage]);
     setInputText('');
     setIsTyping(true);
     setError(null);
-    
+
     try {
-      console.log('🚀 Sending message to webhook:', messageText.trim());
-      
-      const response = await fetch(ms2WebhookUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          session_id: sessionId, 
-          chatInput: userMessage.text, 
-          query: userMessage.text 
-        }),
-      });
-      
-      if (!response.ok) throw new Error(`Webhook failed with status: ${response.status}`);
-      
-      const contentType = response.headers.get('content-type');
-      if (!contentType || !contentType.includes('application/json')) {
-        throw new Error(`Expected JSON response but got ${contentType || 'no content'}`);
-      }
-      
-      const responseText = await response.text();
-      if (!responseText || responseText.trim() === '') {
-        throw new Error('Empty response from webhook');
-      }
-      
-      let aiResponseData;
-      try { 
-        aiResponseData = JSON.parse(responseText); 
-      } catch (parseError) { 
-        throw new Error(`Invalid JSON response: ${responseText.substring(0, 100)}${responseText.length > 100 ? '...' : ''}`); 
-      }
-      
-      console.log('📥 Raw AI response data:', JSON.stringify(aiResponseData, null, 2));
-      
-      let aiResponseText = '';
-      let businessIds = [];
-      let hasBusinessIds = false;
-      
-      // ENHANCED: Better business ID extraction logic (same as web version)
-      if (Array.isArray(aiResponseData) && aiResponseData.length > 0 && aiResponseData[0].output) {
-        const outputText = aiResponseData[0].output;
-        aiResponseText = outputText;
-        
-        // Look for JSON code block first
-        const jsonBlockMatch = outputText.match(/```json\s*\n([\s\S]*?)\n\s*```/);
-        if (jsonBlockMatch && jsonBlockMatch[1]) {
-          try {
-            const jsonData = JSON.parse(jsonBlockMatch[1]);
-            console.log('📊 Parsed JSON from code block:', jsonData);
-            if (jsonData.business_ids) { 
-              businessIds = jsonData.business_ids; 
-              hasBusinessIds = true; 
-            } else if (jsonData.business_id) { 
-              businessIds = [jsonData.business_id]; 
-              hasBusinessIds = true; 
-            }
-            if (hasBusinessIds) {
-              aiResponseText = outputText.replace(/```json\s*\n[\s\S]*?\n\s*```/g, '').trim() || 
-                "I found some businesses that might interest you. Check out the results below.";
-            }
-          } catch (e) { 
-            console.error('Error parsing JSON from code block:', e); 
-          }
-        } else {
-          // Fallback: Look for business_ids in the text
-          const businessIdsMatch = outputText.match(/"business_ids":\s*(\[[^\]]+\])/);
-          if (businessIdsMatch && businessIdsMatch[1]) {
-            try {
-              businessIds = JSON.parse(businessIdsMatch[1]);
-              hasBusinessIds = true;
-              console.log('📊 Found business_ids in text:', businessIds);
-            } catch (e) {
-              console.error('Error parsing business_ids from output text:', e);
-            }
-          } else {
-            // Look for single business_id
-            const businessIdMatch = outputText.match(/"business_id":\s*"([^"]+)"/);
-            if (businessIdMatch && businessIdMatch[1]) {
-              businessIds = [businessIdMatch[1]];
-              hasBusinessIds = true;
-              console.log('📊 Found single business_id in text:', businessIds);
-            }
-          }
-        }
-      } else if (aiResponseData && aiResponseData.answer) {
-        aiResponseText = aiResponseData.answer;
-        if (aiResponseData.business_ids) { 
-          businessIds = aiResponseData.business_ids; 
-          hasBusinessIds = true; 
-        } else if (aiResponseData.business_id) { 
-          businessIds = [aiResponseData.business_id]; 
-          hasBusinessIds = true; 
-        }
-      } else if (Array.isArray(aiResponseData) && aiResponseData.length > 0 && (aiResponseData[0].business_ids || aiResponseData[0].business_id)) {
-        if (aiResponseData[0].business_ids) {
-          businessIds = aiResponseData[0].business_ids;
-          hasBusinessIds = true;
-        } else if (aiResponseData[0].business_id) {
-          businessIds = [aiResponseData[0].business_id];
-          hasBusinessIds = true;
-        }
-        aiResponseText = aiResponseData[0].output || aiResponseData[0].answer || "I found some businesses that might interest you. Check out the results below.";
-      }
-      
-      if (hasBusinessIds && !aiResponseText) {
-        aiResponseText = "I found some businesses that might interest you. Check out the results below.";
-      }
-      
-      console.log('🎯 Final extracted data:', {
-        aiResponseText,
-        businessIds,
-        hasBusinessIds,
-        businessCount: businessIds.length
-      });
-      
-      // Clean the AI response text to remove any remaining business_ids JSON
-      let cleanedAiResponseText = aiResponseText;
-      if (cleanedAiResponseText) {
-        // Remove any remaining business_ids JSON patterns
-        cleanedAiResponseText = cleanedAiResponseText
-          .replace(/\{"business_ids":\s*\[[^\]]*\]\}/g, '')
-          .replace(/\{"business_id":\s*"[^"]*"\}/g, '')
-          .replace(/business_ids":\s*\[[^\]]*\]/g, '')
-          .replace(/business_id":\s*"[^"]*"/g, '')
-          .trim();
-        
-        // If the response is empty after cleaning, provide a default message
-        if (!cleanedAiResponseText && hasBusinessIds) {
-          cleanedAiResponseText = `I found ${businessIds.length} business${businessIds.length !== 1 ? 'es' : ''} that might interest you. Check out the results below.`;
-        }
-      }
-      
-      const aiMessage = { 
-        _id: (Date.now() + 1).toString(), 
-        text: cleanedAiResponseText, 
-        createdAt: new Date(), 
-        type: 'ai', 
-        businessIds: businessIds.length > 0 ? businessIds : undefined 
+      console.log('🚀 Sending query to Edge Function:', messageText.trim());
+
+      // Build conversation history from previous messages
+      const conversationHistory = buildConversationHistory(messages, 5);
+
+      // Get device info for analytics
+      const deviceInfo = {
+        platform: Platform.OS,
+        version: Platform.Version,
       };
-      
-      setMessages(prev => [...prev, aiMessage]);
+
+      // Call the Edge Function instead of webhook
+      const searchResponse = await performConversationalSearch({
+        session_id: sessionId,
+        query: messageText.trim(),
+        filters: {
+          max_results: 10,
+        },
+        conversation_history: conversationHistory,
+        user_location: null, // You can add user location later
+        device_info: deviceInfo,
+      });
+
+      console.log('📥 Search response:', searchResponse);
+
+      // Handle clarification response
+      if (isClarificationResponse(searchResponse)) {
+        const clarificationMessage = {
+          _id: (Date.now() + 1).toString(),
+          text: searchResponse.clarification_question || searchResponse.message,
+          createdAt: new Date(),
+          type: 'ai',
+        };
+
+        setMessages((prev) => [...prev, clarificationMessage]);
+        setIsTyping(false);
+        return;
+      }
+
+      // Handle error response
+      if (searchResponse.type === 'error') {
+        throw new Error(searchResponse.message || 'Search failed');
+      }
+
+      // Extract business IDs from response
+      const businessIds = extractBusinessIds(searchResponse);
+
+      console.log('🎯 Extracted business IDs:', businessIds);
+
+      // Create AI response message
+      const aiMessage = {
+        _id: (Date.now() + 1).toString(),
+        text:
+          searchResponse.message ||
+          `Found ${businessIds.length} business${
+            businessIds.length !== 1 ? 'es' : ''
+          } that might interest you.`,
+        createdAt: new Date(),
+        type: 'ai',
+        businessIds: businessIds.length > 0 ? businessIds : undefined,
+      };
+
+      setMessages((prev) => [...prev, aiMessage]);
       
       // FIXED: Fetch business profiles when business IDs are found
       if (businessIds.length > 0) {
@@ -824,31 +612,34 @@ const SearchScreen = ({ navigation, route, isBusinessMode, onBusinessModeToggle 
           }, 1000); // Longer delay to let user see the results message
         }
       }
-      
+
     } catch (err) {
-      console.error('Error calling MS2 Webhook:', err.message);
+      console.error('Error in search:', err.message);
       let errorMsg = `Failed to get response: ${err.message}`;
-      
+
       if (err.message.includes('JSON')) {
         errorMsg = 'The service returned an invalid response format.';
-      } else if (err.message.includes('Failed to fetch') || err.message.includes('Network Error')) {
+      } else if (
+        err.message.includes('Failed to fetch') ||
+        err.message.includes('Network Error')
+      ) {
         errorMsg = 'Could not connect to the search service.';
       } else if (err.message.includes('status: 4')) {
         errorMsg = 'Request error. Please try again.';
       } else if (err.message.includes('status: 5')) {
         errorMsg = 'Service temporarily unavailable.';
       }
-      
+
       setError(errorMsg);
-      const errorMessage = { 
-        _id: (Date.now() + 1).toString(), 
-        text: `Error: ${errorMsg}`, 
-        createdAt: new Date(), 
-        type: 'error' 
+      const errorMessage = {
+        _id: (Date.now() + 1).toString(),
+        text: `Error: ${errorMsg}`,
+        createdAt: new Date(),
+        type: 'error',
       };
-      setMessages(prev => [...prev, errorMessage]);
-    } finally { 
-      setIsTyping(false); 
+      setMessages((prev) => [...prev, errorMessage]);
+    } finally {
+      setIsTyping(false);
     }
   };
 
@@ -1184,21 +975,11 @@ const SearchScreen = ({ navigation, route, isBusinessMode, onBusinessModeToggle 
     },
   });
 
-  if (isLoadingSettings && !hasInitialized) {
-    return (
-      <SafeAreaView style={styles.container} edges={['top']}>
-        <StatusBar style="light" />
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={colors.primaryBlue} />
-          <Text style={styles.loadingText}>Initializing search...</Text>
-        </View>
-      </SafeAreaView>
-    );
-  }
+  // ✅ No more loading check needed - Edge Functions are instant!
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
-      <StatusBar style="light" />
+      <StatusBar style="dark" />
       
       {/* Header */}
       <MobileHeader
@@ -1429,8 +1210,8 @@ const SearchScreen = ({ navigation, route, isBusinessMode, onBusinessModeToggle 
 
 const styles = StyleSheet.create({
   container: {
-    flex: 1,
-    backgroundColor: colors.backgroundGray,
+    ...webRootContainer,
+    backgroundColor: colors.cardWhite, // Use pure white like other screens
   },
   loadingContainer: {
     flex: 1,
@@ -1444,13 +1225,14 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   mainContent: {
-    flex: 1,
+    ...webScrollContainer,
     marginBottom: BOTTOM_TAB_HEIGHT,
   },
   resultsContainer: {
-    flex: 1,
+    ...webScrollView,
   },
   resultsContent: {
+    ...webScrollContent,
     padding: 16,
     paddingBottom: 32,
   },
@@ -1588,6 +1370,7 @@ const styles = StyleSheet.create({
   },
   businessCardInfo: {
     flex: 1,
+    marginLeft: 12,
     marginRight: 8,
   },
   businessName: {

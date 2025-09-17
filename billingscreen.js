@@ -890,8 +890,8 @@ const PaymentForm = ({
       // Step 2: Prepare business profile update with required fields
       const businessProfileUpdate = {
         user_id: currentUser.id,
-        business_status: 'Active',  // Set to Active enum value (key fix!)
-        is_active: true,           // Set to true (key fix!)
+        business_status: 'Incomplete',  // Set to Incomplete - user must complete profile setup
+        is_active: true,                // Set to true to allow profile access
         updated_at: new Date().toISOString(),
       };
 
@@ -992,8 +992,8 @@ const PaymentForm = ({
       // Step 2: Prepare MINIMAL business profile update - only subscription activation fields
       const businessProfileUpdate = {
         user_id: currentUser.id,
-        business_status: 'Active',  // Set to Active enum value to enable access
-        is_active: true,           // Set to true to enable access
+        business_status: 'Incomplete',  // Set to Incomplete - user must complete profile setup
+        is_active: true,                // Set to true to allow profile access
         stripe_customer_id: subscriptionData.customerId,
         updated_at: new Date().toISOString(),
       };

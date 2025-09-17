@@ -18,7 +18,7 @@ import {
   StatusBar
 } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
-import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const SLIDER_WIDTH = SCREEN_WIDTH * 0.85;
@@ -372,7 +372,7 @@ const AddContactSlider = ({ isVisible, onClose, onSave }) => {
           <View style={styles.header}>
             <Text style={styles.headerText}>Add Contact</Text>
             <TouchableOpacity onPress={onClose} style={styles.closeButton}>
-              <Icon name="close" size={24} color="#333" />
+              <MaterialCommunityIcons name="close" size={24} color="#333" />
             </TouchableOpacity>
           </View>
 

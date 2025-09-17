@@ -32,6 +32,7 @@ ehthumbs.db
 
 # IDE - VSCode
 .vscode/
+!.vscode/mcp.json
 *.code-workspace
 
 # IDE - IntelliJ
@@ -47,6 +48,9 @@ coverage/
 .env.development.local
 .env.test.local
 .env.production.local
+
+# MCP Configuration (may contain sensitive URLs/tokens)
+.mcp.json
 
 # Logs
 logs/
@@ -71,3 +75,6 @@ out/
 *.pem
 *.key
 secrets/
+
+# Local Netlify folder
+.netlify

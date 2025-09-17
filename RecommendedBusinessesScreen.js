@@ -28,6 +28,8 @@ import MobileBottomNavigation from './MobileBottomNavigation';
 import BusinessProfileSlider from './BusinessProfileSlider';
 import AddToProjectSlider from './AddToProjectSlider';
 import ConnectionGraphDisplay from './ConnectionGraphDisplay';
+import BusinessLogoInitials from './components/BusinessLogoInitials';
+import SocialSlider from './components/SocialSlider';
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 
@@ -66,131 +68,35 @@ const getColorFromName = (name) => {
   return colors[index];
 };
 
-// Business Logo Component (same as SearchScreen)
+// Business Logo Component - now uses BusinessLogoInitials with 2-letter fallback
 const BusinessLogo = ({ business }) => {
-  const [bgColor, setBgColor] = useState(getColorFromName(business.business_name || 'Business'));
-  const [imageLoaded, setImageLoaded] = useState(false);
-  
-  // Function to extract dominant color from image
-  const extractDominantColor = async (imageUri) => {
-    try {
-      // For now, we'll use a smart color extraction based on the business name and industry
-      // This provides better color matching than random colors
-      const businessName = business.business_name?.toLowerCase() || '';
-      const industry = business.industry?.toLowerCase() || '';
-      
-      // Define color mappings for common business types
-      const colorMappings = {
-        // Automotive
-        'auto': '#1E3A8A', 'car': '#1E3A8A', 'automotive': '#1E3A8A', 'dealership': '#1E3A8A',
-        'leasing': '#0F172A', 'rental': '#374151',
-        
-        // Technology
-        'tech': '#3B82F6', 'software': '#3B82F6', 'digital': '#3B82F6', 'it': '#3B82F6',
-        
-        // Food & Restaurant
-        'restaurant': '#DC2626', 'food': '#DC2626', 'cafe': '#92400E', 'bakery': '#D97706',
-        
-        // Health & Medical
-        'medical': '#059669', 'health': '#059669', 'dental': '#059669', 'clinic': '#059669',
-        
-        // Finance
-        'bank': '#1E40AF', 'finance': '#1E40AF', 'insurance': '#1E40AF', 'investment': '#1E40AF',
-        
-        // Real Estate
-        'real estate': '#7C2D12', 'property': '#7C2D12', 'construction': '#92400E',
-        
-        // Retail
-        'retail': '#7C3AED', 'store': '#7C3AED', 'shop': '#7C3AED', 'boutique': '#7C3AED',
-        
-        // Services
-        'consulting': '#374151', 'service': '#374151', 'agency': '#374151',
-        
-        // Default colors for specific business names
-        'fast lane': '#0F172A', // Dark color for Fast Lane Leasing
-      };
-      
-      // Check for specific business name matches first
-      for (const [key, color] of Object.entries(colorMappings)) {
-        if (businessName.includes(key)) {
-          return color;
-        }
-      }
-      
-      // Check industry matches
-      for (const [key, color] of Object.entries(colorMappings)) {
-        if (industry.includes(key)) {
-          return color;
-        }
-      }
-      
-      // Fallback to original color generation but with better colors
-      const betterColors = [
-        '#1E3A8A', '#DC2626', '#059669', '#7C2D12', '#7C3AED',
-        '#0F172A', '#374151', '#92400E', '#1E40AF', '#BE185D'
-      ];
-      
-      let hash = 0;
-      const nameToHash = businessName || 'business';
-      for (let i = 0; i < nameToHash.length; i++) {
-        hash = nameToHash.charCodeAt(i) + ((hash << 5) - hash);
-      }
-      const index = Math.abs(hash) % betterColors.length;
-      return betterColors[index];
-      
-    } catch (error) {
-      console.log('Error extracting color, using fallback');
-      return getColorFromName(business.business_name || 'Business');
-    }
-  };
-  
-  // Update background color when image loads
-  const handleImageLoad = async () => {
-    setImageLoaded(true);
-    if (business.image_url) {
-      const dominantColor = await extractDominantColor(business.image_url);
-      setBgColor(dominantColor);
-    }
-  };
-  
-  // Set initial color based on business info
-  React.useEffect(() => {
-    const setInitialColor = async () => {
-      const smartColor = await extractDominantColor(business.image_url);
-      setBgColor(smartColor);
-    };
-    setInitialColor();
-  }, [business.business_name, business.industry]);
-  
   return (
-    <View style={[styles.businessLogo, { backgroundColor: bgColor }]}>
-      {business.image_url ? (
-        <Image 
-          source={{ uri: business.image_url }} 
-          style={styles.businessLogoImage}
-          onLoad={handleImageLoad}
-          onError={() => setImageLoaded(false)}
-        />
-      ) : (
-        <Text style={styles.businessLogoText}>
-          {business.business_name ? business.business_name.charAt(0).toUpperCase() : 'B'}
-        </Text>
-      )}
-    </View>
+    <BusinessLogoInitials
+      businessName={business.business_name}
+      imageUrl={business.image_url}
+      backgroundColor={business.logo_dominant_color}
+      size={72}
+    />
   );
 };
 
 // Business Card Component (same layout as SearchScreen)
-const BusinessCard = ({ 
-  business, 
-  onPress, 
-  onAddToProject, 
+const BusinessCard = ({
+  business,
+  onPress,
+  onAddToProject,
   onBusinessLogoPress,
-  isRecommended, 
+  isRecommended,
   onToggleRecommendation,
   connectionPath,
   loadingConnection,
-  currentUserFullName
+  currentUserFullName,
+  likeCount = 0,
+  commentCount = 0,
+  pictureCount = 0,
+  userHasLiked = false,
+  onLikePress,
+  onSocialPress,
 }) => {
   return (
     <TouchableOpacity style={styles.businessCard} onPress={() => onPress(business.business_id)}>
@@ -204,22 +110,24 @@ const BusinessCard = ({
           {business.industry && (
             <Text style={styles.businessIndustry} numberOfLines={1}>{business.industry}</Text>
           )}
-          <View style={styles.businessLocation}>
-            <Ionicons name="location-outline" size={14} color={colors.textMedium} />
-            <Text style={styles.businessLocationText} numberOfLines={1}>
-              {business.city && business.state ? `${business.city}, ${business.state}` : 
-               business.zip_code || 'Location not specified'}
-            </Text>
-          </View>
-          
-          {/* Coverage Info */}
-          {business.coverage_type && (
+
+          {/* Show location only if coverage is local or not set */}
+          {(!business.coverage_type || business.coverage_type === 'local') && (
+            <View style={styles.businessLocation}>
+              <Ionicons name="location-outline" size={14} color={colors.textMedium} />
+              <Text style={styles.businessLocationText} numberOfLines={1}>
+                {business.city && business.state ? `${business.city}, ${business.state}` :
+                 business.zip_code || 'Location not specified'}
+              </Text>
+            </View>
+          )}
+
+          {/* Show coverage info only if regional or national */}
+          {business.coverage_type && (business.coverage_type === 'regional' || business.coverage_type === 'national') && (
             <View style={styles.coverageInfo}>
               <Ionicons name="business-outline" size={12} color={colors.textMedium} />
               <Text style={styles.coverageText}>
                 {business.coverage_type.charAt(0).toUpperCase() + business.coverage_type.slice(1)}
-                {business.coverage_type === 'local' && business.coverage_radius && 
-                  ` (${business.coverage_radius}mi)`}
               </Text>
             </View>
           )}
@@ -281,6 +189,46 @@ const BusinessCard = ({
           </View>
         )}
       </View>
+
+      {/* Engagement Actions */}
+      <View style={styles.engagementActions}>
+        <TouchableOpacity
+          style={styles.engagementButton}
+          onPress={(e) => {
+            e.stopPropagation();
+            onLikePress(business.business_id);
+          }}
+        >
+          <Ionicons
+            name={userHasLiked ? "thumbs-up" : "thumbs-up-outline"}
+            size={20}
+            color={userHasLiked ? colors.primaryBlue : colors.textMedium}
+          />
+          {likeCount > 0 && <Text style={styles.engagementCount}>{likeCount}</Text>}
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.engagementButton}
+          onPress={(e) => {
+            e.stopPropagation();
+            onSocialPress(business.business_id, 'comments');
+          }}
+        >
+          <Ionicons name="chatbubble-outline" size={20} color={colors.textMedium} />
+          {commentCount > 0 && <Text style={styles.engagementCount}>{commentCount}</Text>}
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.engagementButton}
+          onPress={(e) => {
+            e.stopPropagation();
+            onSocialPress(business.business_id, 'pictures');
+          }}
+        >
+          <Ionicons name="camera-outline" size={20} color={colors.textMedium} />
+          {pictureCount > 0 && <Text style={styles.engagementCount}>{pictureCount}</Text>}
+        </TouchableOpacity>
+      </View>
     </TouchableOpacity>
   );
 };
@@ -321,6 +269,9 @@ const RecommendedBusinessesScreen = ({ navigation }) => {
   const [neo4jConfig, setNeo4jConfig] = useState(null);
   const [connectionPaths, setConnectionPaths] = useState({});
   const [loadingPaths, setLoadingPaths] = useState({});
+
+  // Engagement metrics state
+  const [engagementMetrics, setEngagementMetrics] = useState({});
   
   // Chat states
   const [chatSliderVisible, setChatSliderVisible] = useState(false);
@@ -337,6 +288,10 @@ const RecommendedBusinessesScreen = ({ navigation }) => {
   const [businessSliderVisible, setBusinessSliderVisible] = useState(false);
   const [addToProjectSliderVisible, setAddToProjectSliderVisible] = useState(false);
   const [selectedBusinessId, setSelectedBusinessId] = useState(null);
+
+  // Social slider states
+  const [socialSliderVisible, setSocialSliderVisible] = useState(false);
+  const [socialBusinessId, setSocialBusinessId] = useState(null);
   
   // Animation ref for chat slider
   const chatSlideAnim = useRef(new Animated.Value(CHAT_SLIDER_WIDTH)).current;
@@ -522,16 +477,17 @@ const RecommendedBusinessesScreen = ({ navigation }) => {
       const { data: businessData, error: businessError } = await supabase
         .from('business_profiles')
         .select(`
-          business_id, 
-          business_name, 
-          description, 
-          industry, 
-          image_url, 
-          city, 
-          state, 
-          zip_code, 
-          coverage_type, 
-          coverage_details, 
+          business_id,
+          business_name,
+          description,
+          industry,
+          image_url,
+          logo_dominant_color,
+          city,
+          state,
+          zip_code,
+          coverage_type,
+          coverage_details,
           coverage_radius
         `)
         .in('business_id', businessIds);
@@ -541,9 +497,69 @@ const RecommendedBusinessesScreen = ({ navigation }) => {
       console.log('✅ Fetched recommended business profiles:', businessData?.length || 0, 'businesses');
       setRecommendedBusinesses(businessData || []);
       setFilteredBusinesses(businessData || []);
+
+      // Fetch engagement metrics for all businesses
+      if (businessData && businessData.length > 0) {
+        const businessIds = businessData.map(b => b.business_id);
+        await fetchEngagementMetrics(businessIds);
+      }
     } catch (err) {
       console.error('Error fetching recommended businesses:', err);
       setError('Failed to load recommended businesses');
+    }
+  };
+
+  // Fetch engagement metrics for businesses
+  const fetchEngagementMetrics = async (businessIds) => {
+    if (!businessIds || businessIds.length === 0 || !currentUserId) return;
+
+    try {
+      // Fetch all likes
+      const { data: likesData, error: likesError } = await supabase
+        .from('business_profile_likes')
+        .select('business_id, user_id')
+        .in('business_id', businessIds);
+
+      if (likesError) {
+        console.error('Error fetching likes:', likesError);
+      }
+
+      // Fetch comments count
+      const { data: commentsData, error: commentsError } = await supabase
+        .from('business_profile_comments')
+        .select('business_id')
+        .in('business_id', businessIds);
+
+      if (commentsError) {
+        console.error('Error fetching comments:', commentsError);
+      }
+
+      // Fetch pictures count
+      const { data: picturesData, error: picturesError } = await supabase
+        .from('business_profile_pictures')
+        .select('business_id')
+        .eq('is_active', true)
+        .in('business_id', businessIds);
+
+      if (picturesError) {
+        console.error('Error fetching pictures:', picturesError);
+      }
+
+      // Count likes, comments, pictures per business and check if user liked
+      const metrics = {};
+      businessIds.forEach(id => {
+        const businessLikes = likesData?.filter(like => like.business_id === id) || [];
+        metrics[id] = {
+          likeCount: businessLikes.length,
+          commentCount: commentsData?.filter(comment => comment.business_id === id).length || 0,
+          pictureCount: picturesData?.filter(pic => pic.business_id === id).length || 0,
+          userHasLiked: businessLikes.some(like => like.user_id === currentUserId),
+        };
+      });
+
+      setEngagementMetrics(metrics);
+    } catch (error) {
+      console.error('Error fetching engagement metrics:', error);
     }
   };
 
@@ -695,6 +711,82 @@ const RecommendedBusinessesScreen = ({ navigation }) => {
   const handleAddToProjectClick = (businessId) => {
     setSelectedBusinessId(businessId);
     setAddToProjectSliderVisible(true);
+  };
+
+  // Handle like button press
+  const handleLikePress = async (businessId) => {
+    if (!currentUserId) {
+      Alert.alert('Error', 'You must be logged in to like a business');
+      return;
+    }
+
+    const metrics = engagementMetrics[businessId] || {};
+    const userHasLiked = metrics.userHasLiked;
+
+    try {
+      if (userHasLiked) {
+        // Unlike
+        const { error } = await supabase
+          .from('business_profile_likes')
+          .delete()
+          .eq('business_id', businessId)
+          .eq('user_id', currentUserId);
+
+        if (error) throw error;
+
+        // Update local state optimistically
+        setEngagementMetrics(prev => ({
+          ...prev,
+          [businessId]: {
+            ...prev[businessId],
+            likeCount: Math.max(0, (prev[businessId]?.likeCount || 1) - 1),
+            userHasLiked: false,
+          }
+        }));
+      } else {
+        // Like
+        const { error } = await supabase
+          .from('business_profile_likes')
+          .insert([
+            {
+              business_id: businessId,
+              user_id: currentUserId,
+            }
+          ]);
+
+        if (error) throw error;
+
+        // Update local state optimistically
+        setEngagementMetrics(prev => ({
+          ...prev,
+          [businessId]: {
+            ...prev[businessId],
+            likeCount: (prev[businessId]?.likeCount || 0) + 1,
+            userHasLiked: true,
+          }
+        }));
+      }
+    } catch (error) {
+      console.error('Error toggling like:', error);
+      Alert.alert('Error', 'Failed to update like. Please try again.');
+    }
+  };
+
+  // Handle social slider open
+  const handleSocialPress = (businessId, section = 'comments') => {
+    setSocialBusinessId(businessId);
+    setSocialSliderVisible(true);
+  };
+
+  // Handle social slider close
+  const handleSocialSliderClose = () => {
+    setSocialSliderVisible(false);
+    setSocialBusinessId(null);
+    // Refresh engagement metrics when social slider closes
+    if (recommendedBusinesses.length > 0) {
+      const businessIds = recommendedBusinesses.map(b => b.business_id);
+      fetchEngagementMetrics(businessIds);
+    }
   };
 
   // Animation functions
@@ -863,6 +955,12 @@ const RecommendedBusinessesScreen = ({ navigation }) => {
                   connectionPath={connectionPaths[business.business_id]}
                   loadingConnection={loadingPaths[business.business_id]}
                   currentUserFullName={currentUserFullName}
+                  likeCount={engagementMetrics[business.business_id]?.likeCount || 0}
+                  commentCount={engagementMetrics[business.business_id]?.commentCount || 0}
+                  pictureCount={engagementMetrics[business.business_id]?.pictureCount || 0}
+                  userHasLiked={engagementMetrics[business.business_id]?.userHasLiked || false}
+                  onLikePress={handleLikePress}
+                  onSocialPress={handleSocialPress}
                 />
               ))}
             </>
@@ -956,6 +1054,14 @@ const RecommendedBusinessesScreen = ({ navigation }) => {
         onClose={() => setAddToProjectSliderVisible(false)}
         businessId={selectedBusinessId}
         userId={currentUserId}
+      />
+
+      {/* Social Slider */}
+      <SocialSlider
+        isVisible={socialSliderVisible}
+        onClose={handleSocialSliderClose}
+        businessId={socialBusinessId}
+        currentUserId={currentUserId}
       />
 
       {/* Bottom Navigation */}
@@ -1056,6 +1162,7 @@ const styles = StyleSheet.create({
   },
   businessCardInfo: {
     flex: 1,
+    marginLeft: 12,
     marginRight: 8,
   },
   businessName: {
@@ -1127,6 +1234,26 @@ const styles = StyleSheet.create({
     height: 32,
     width: 60,
     marginRight: 8,
+  },
+  engagementActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingTop: 12,
+    marginTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: colors.borderLight,
+  },
+  engagementButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginRight: 20,
+    padding: 4,
+  },
+  engagementCount: {
+    marginLeft: 6,
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.textDark,
   },
   errorContainer: {
     flex: 1,

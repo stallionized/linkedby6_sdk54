@@ -6,6 +6,10 @@
     "orientation": "portrait",
     "userInterfaceStyle": "light",
     "scheme": "linkedbysix",
+    "web": {
+      "bundler": "metro",
+      "output": "single"
+    },
     "assetBundlePatterns": [
       "**/*"
     ],

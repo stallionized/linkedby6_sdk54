@@ -40,7 +40,7 @@ const MobileHeader = ({
   isBusinessMode = false,
   onBusinessModeToggle
 }) => {
-  const { user, signOut } = useAuth();
+  const { user, signOut, trackActivity } = useAuth();
   const [hasBusinessProfile, setHasBusinessProfile] = useState(false);
   const [businessProfile, setBusinessProfile] = useState(null);
 
@@ -61,12 +61,14 @@ const MobileHeader = ({
         .from('business_profiles')
         .select('business_id, business_name, business_status, is_active')
         .eq('user_id', user.id)
-        .eq('is_active', true)
         .single();
 
       if (profile && !error) {
-        setHasBusinessProfile(true);
+        // Profile is fully active only if status is 'Active' (not 'Incomplete')
+        const isFullyActive = profile.business_status === 'Active';
+        setHasBusinessProfile(isFullyActive);
         setBusinessProfile(profile);
+        console.log('Business profile found. Status:', profile.business_status, 'Fully Active:', isFullyActive);
       } else {
         setHasBusinessProfile(false);
         setBusinessProfile(null);
@@ -83,54 +85,71 @@ const MobileHeader = ({
   };
 
   const handleBillingPress = () => {
+    console.log('Briefcase icon pressed. Has business profile:', hasBusinessProfile);
+    console.log('Business profile data:', businessProfile);
+
+    // Check if user has a business profile with 'Incomplete' status (needs to complete setup)
+    if (businessProfile && businessProfile.business_status === 'Incomplete') {
+      console.log('Business profile exists with Incomplete status. Navigating to BusinessProfileScreen to complete setup');
+      navigation.navigate('BusinessProfileScreen');
+      return;
+    }
+
     if (hasBusinessProfile) {
-      // User has business profile - toggle business mode
+      // User has fully active business profile (status = 'Active') - toggle business mode
       if (isBusinessMode) {
         // Currently in business mode - switch to general mode
+        console.log('Exiting business mode, navigating to Search');
         if (onBusinessModeToggle) {
           onBusinessModeToggle(false);
         }
         navigation.navigate('Search');
       } else {
         // Currently in general mode - switch to business mode
+        console.log('Entering business mode, navigating to BusinessAnalytics');
         if (onBusinessModeToggle) {
           onBusinessModeToggle(true);
         }
         navigation.navigate('BusinessAnalytics');
       }
     } else {
-      // User doesn't have business profile - go to pricing
+      // User doesn't have any business profile - go to pricing
+      console.log('No business profile found, navigating to BusinessPricing');
       navigation.navigate('BusinessPricing');
     }
   };
 
   const handleSettingsPress = () => {
+    // Track user activity to reset session timeout
+    if (trackActivity) {
+      trackActivity();
+    }
+    
     Alert.alert(
-      'Settings',
+      'Account Menu',
       'Choose an option:',
       [
         {
-          text: 'Profile Settings',
-          onPress: () => navigation.navigate('Settings'),
+          text: 'Settings',
+          onPress: () => {
+            if (trackActivity) trackActivity();
+            Alert.alert('Coming Soon', 'Settings will be available in a future update.');
+          },
         },
         {
-          text: 'Business Profile',
-          onPress: () => navigation.navigate('BusinessProfile'),
-        },
-        {
-          text: 'Billing & Payments',
-          onPress: () => navigation.navigate('Billing'),
-        },
-        {
-          text: 'Sign Out',
+          text: 'Log Out',
           style: 'destructive',
           onPress: () => handleSignOut(),
         },
         {
           text: 'Cancel',
           style: 'cancel',
+          onPress: () => {
+            if (trackActivity) trackActivity();
+          },
         },
-      ]
+      ],
+      { cancelable: true }
     );
   };
 

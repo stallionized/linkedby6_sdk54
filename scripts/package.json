@@ -1,0 +1,27 @@
+{
+  "name": "edge-function-search-scripts",
+  "version": "1.0.0",
+  "description": "Utility scripts for Supabase Edge Function-based search system",
+  "scripts": {
+    "generate-embeddings": "node generate-all-embeddings.js",
+    "regenerate-enrichments": "node regenerate-all-enrichments.js",
+    "test-search": "node test-search.js",
+    "check-status": "echo 'Run check-embedding-status.sql in Supabase SQL Editor'"
+  },
+  "keywords": [
+    "supabase",
+    "edge-functions",
+    "pgvector",
+    "embeddings",
+    "search"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@supabase/supabase-js": "^2.39.0",
+    "dotenv": "^16.3.1"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  }
+}

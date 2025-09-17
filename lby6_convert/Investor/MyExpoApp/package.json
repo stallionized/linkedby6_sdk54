@@ -1,0 +1,30 @@
+{
+  "name": "myexpoapp",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "start": "expo start",
+    "android": "expo start --android",
+    "ios": "expo start --ios",
+    "web": "expo start --web",
+    "export": "expo export --platform web"
+  },
+  "dependencies": {
+    "@expo/metro-runtime": "~5.0.5",
+    "@expo/vector-icons": "^15.0.2",
+    "@react-native-community/slider": "^5.0.1",
+    "expo": "~53.0.0",
+    "expo-av": "^16.0.7",
+    "expo-keep-awake": "^15.0.7",
+    "expo-linking": "^8.0.8",
+    "expo-screen-orientation": "^9.0.7",
+    "expo-status-bar": "~2.0.0",
+    "react": "19.0.0",
+    "react-dom": "19.0.0",
+    "react-native": "0.76.1",
+    "react-native-video": "^6.17.0",
+    "react-native-web": "^0.20.0",
+    "react-native-webview": "^13.16.0"
+  },
+  "private": true
+}

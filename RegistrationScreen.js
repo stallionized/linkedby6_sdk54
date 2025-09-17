@@ -15,7 +15,7 @@ import {
   Keyboard,
   TouchableWithoutFeedback
 } from 'react-native';
-import { signUp, signIn } from './Auth';
+import { signUp, signIn, signUpWithPhone } from './Auth';
 import { LinearGradient } from 'expo-linear-gradient';
 import { supabase } from './supabaseClient';
 import * as ImagePicker from 'expo-image-picker';
@@ -34,8 +34,7 @@ const RegistrationScreen = ({ navigation, route }) => {
   const confirmPasswordRef = useRef(null);
 
   // State for user registration data
-  const [phoneNumber, setPhoneNumber] = useState('(   )    -    ');
-  const [selection, setSelection] = useState({ start: 1, end: 1 });
+  const [phoneNumber, setPhoneNumber] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -216,7 +215,7 @@ const RegistrationScreen = ({ navigation, route }) => {
     }
     
     // Validate phone number
-    if (!phoneNumber.trim() || phoneNumber === '(   )    -    ') {
+    if (!phoneNumber.trim()) {
       setPhoneError('Phone number is required');
       isValid = false;
     } else if (!validatePhone(phoneNumber)) {
@@ -257,11 +256,11 @@ const RegistrationScreen = ({ navigation, route }) => {
     return isValid;
   };
 
-  // Function to handle registration
+  // Function to handle registration with phone OTP
   const handleRegistration = async () => {
     // Dismiss keyboard
     Keyboard.dismiss();
-    
+
     // Validate form
     if (!validateForm()) {
       // Find first error and show toast
@@ -308,9 +307,9 @@ const RegistrationScreen = ({ navigation, route }) => {
       }
       return;
     }
-    
+
     setIsSubmitting(true);
-    
+
     try {
       // Check and clear existing session
       try {
@@ -321,7 +320,7 @@ const RegistrationScreen = ({ navigation, route }) => {
       } catch (sessionCheckError) {
         console.error('Error checking for existing session:', sessionCheckError);
       }
-      
+
       // Process profile image if exists
       let imageUrl = null;
       if (profileImage) {
@@ -331,110 +330,79 @@ const RegistrationScreen = ({ navigation, route }) => {
           console.error('Error processing profile image:', imageError);
         }
       }
-      
-      // Format phone number consistently
+
+      // Format phone number consistently (E.164 format)
       const formattedPhone = '+1' + phoneNumber.replace(/\D/g, '');
-      
-      // Step 1: Sign up the user
-      let user;
+
+      console.log('Sending OTP to phone:', formattedPhone);
+
+      // Send OTP to phone number
       try {
-        user = await signUp(formattedPhone, password, email, fullName.trim());
-      } catch (signUpError) {
-        console.error('Supabase signUp error:', signUpError);
-        throw new Error(`Registration failed: ${signUpError.message || 'Unknown error'}`);
-      }
-      
-      if (user) {
-        try {
-          // Step 2: Create user profile
-          const profileData = {
-            user_id: user.id,
-            full_name: fullName.trim(),
-            user_phone_number: phoneNumber,
-            profile_image_url: imageUrl,
-            is_admin: false,
-            role: 'standard_user'
-          };
-          
-          // Step 3: Update user profile
-          try {
-            await updateUserProfile(user.id, profileData);
-          } catch (profileError) {
-            console.error('Error updating user profile:', profileError);
-            throw new Error(`Profile update failed: ${profileError.message || 'Unknown error'}`);
-          }
-          
-          // Step 4: Sign in the user
-          try {
-            await signIn(email, password);
-            
-            // Show success message
-            Toast.show({
-              type: 'success',
-              text1: 'Registration Successful!',
-              text2: 'Welcome to our platform',
-              position: 'top',
-              visibilityTime: 2000,
-            });
-            
-            // Navigate to search screen with delay
-            setTimeout(() => {
-              navigation.navigate('Search');
-            }, 1500);
-            
-          } catch (signInError) {
-            console.error('Error signing in after registration:', signInError);
-            
-            if (signInError.message && signInError.message.includes('Invalid login credentials')) {
-              Toast.show({
-                type: 'info',
-                text1: 'Account Created Successfully',
-                text2: 'Please check your email to confirm your account',
-                position: 'top',
-                visibilityTime: 4000,
-              });
-              navigation.navigate('LoginScreen', { showEmailConfirmation: true });
-              return;
-            } else {
-              throw new Error(`Sign-in failed: ${signInError.message || 'Unknown error'}`);
-            }
-          }
-          
-        } catch (error) {
-          console.error('Error after registration:', error);
+        const result = await signUpWithPhone(formattedPhone);
+
+        if (result.success) {
+          console.log('OTP sent successfully, navigating to OTP verification screen');
+
           Toast.show({
-            type: 'error',
-            text1: 'Profile Creation Error',
-            text2: 'Your account was created, but there was an error setting up your profile. Please try signing in.',
+            type: 'success',
+            text1: 'Verification Code Sent',
+            text2: 'Please check your phone for the code',
             position: 'top',
-            visibilityTime: 4000,
+            visibilityTime: 2000,
           });
-          
+
+          // Navigate to OTP verification screen with necessary data
           setTimeout(() => {
-            navigation.navigate('LoginScreen', { showEmailConfirmation: true });
+            navigation.navigate('OTPVerification', {
+              phoneNumber: formattedPhone,
+              email: email.trim(),
+              password: password,
+              fullName: fullName.trim(),
+              profileImageUrl: imageUrl,
+            });
           }, 1000);
         }
-      } else {
-        throw new Error('Registration failed: No user data returned');
+      } catch (otpError) {
+        console.error('Error sending OTP:', otpError);
+
+        let errorMessage = otpError.message || 'Failed to send verification code';
+
+        // Handle specific error cases
+        if (errorMessage.includes('rate limit')) {
+          errorMessage = 'Too many attempts. Please try again in a few minutes.';
+        } else if (errorMessage.includes('invalid phone')) {
+          errorMessage = 'Invalid phone number. Please check and try again.';
+        } else if (errorMessage.includes('SMS')) {
+          errorMessage = 'SMS service is not configured. Please contact support.';
+        }
+
+        Toast.show({
+          type: 'error',
+          text1: 'Verification Failed',
+          text2: errorMessage,
+          position: 'top',
+          visibilityTime: 4000,
+        });
+
+        throw otpError;
       }
     } catch (error) {
       console.error('Registration error:', error);
-      
+
       let errorMessage = error.message || 'There was an error creating your account. Please try again.';
-      
+
       if (error.message && error.message.includes('row-level security policy')) {
         errorMessage = 'Registration failed due to database permission issues. Please contact support.';
-      } else if (error.message && error.message.includes('Sign-in failed')) {
-        errorMessage = 'Your account was created, but there was an issue signing you in. Please try logging in manually.';
+      } else if (error.message && !error.message.includes('Verification Failed')) {
+        // Only show generic error if we haven't already shown a specific one
+        Toast.show({
+          type: 'error',
+          text1: 'Registration Failed',
+          text2: errorMessage,
+          position: 'top',
+          visibilityTime: 4000,
+        });
       }
-      
-      Toast.show({
-        type: 'error',
-        text1: 'Registration Failed',
-        text2: errorMessage,
-        position: 'top',
-        visibilityTime: 4000,
-      });
     } finally {
       setIsSubmitting(false);
     }
@@ -447,18 +415,57 @@ const RegistrationScreen = ({ navigation, route }) => {
 
   // Handle phone number formatting with proper cursor management
   const handlePhoneNumberChange = (text) => {
-    const digits = text.replace(/\D/g, '').slice(0, 10);
-    
-    // Format phone number
-    let formatted = '(   )    -    ';
-    const digitSlots = [1, 2, 3, 6, 7, 8, 10, 11, 12, 13];
-    
-    for (let i = 0; i < digits.length && i < digitSlots.length; i++) {
-      const pos = digitSlots[i];
-      formatted = formatted.substring(0, pos) + digits[i] + formatted.substring(pos + 1);
+    // Remove all non-digit characters
+    const digits = text.replace(/\D/g, '');
+
+    // Limit to 10 digits
+    const limitedDigits = digits.slice(0, 10);
+
+    // If empty or being deleted, allow empty string
+    if (limitedDigits.length === 0) {
+      setPhoneNumber('');
+      return;
     }
-    
+
+    // Format the phone number as user types
+    let formatted = '';
+
+    // Add area code with parentheses
+    formatted = '(' + limitedDigits.slice(0, 3);
+
+    if (limitedDigits.length >= 3) {
+      formatted += ') ';
+    }
+
+    if (limitedDigits.length > 3) {
+      // Add next 3 digits
+      formatted += limitedDigits.slice(3, 6);
+    }
+
+    if (limitedDigits.length > 6) {
+      // Add hyphen and last 4 digits
+      formatted += '-' + limitedDigits.slice(6, 10);
+    }
+
     setPhoneNumber(formatted);
+
+    // Clear phone error if valid
+    if (phoneError && limitedDigits.length === 10) {
+      setPhoneError('');
+    }
+  };
+
+  // Handle phone input focus - move cursor to end for easy editing
+  const handlePhoneFocus = () => {
+    // Small delay to ensure focus is complete
+    setTimeout(() => {
+      if (phoneRef.current && phoneNumber) {
+        // Move cursor to the end for natural typing experience
+        phoneRef.current.setNativeProps({
+          selection: { start: phoneNumber.length, end: phoneNumber.length }
+        });
+      }
+    }, 10);
   };
 
   // Focus management for inputs
@@ -553,21 +560,23 @@ const RegistrationScreen = ({ navigation, route }) => {
                     <TextInput
                       ref={phoneRef}
                       style={[
-                        styles.input, 
+                        styles.input,
                         phoneError ? styles.inputError : null,
                         { paddingRight: isCheckingPhone ? 45 : 15 }
                       ]}
                       placeholder="Phone Number"
                       placeholderTextColor="#999"
-                      keyboardType="phone-pad"
+                      keyboardType={Platform.OS === 'ios' ? 'numbers-and-punctuation' : 'phone-pad'}
                       value={phoneNumber}
-                      onChangeText={(text) => {
-                        handlePhoneNumberChange(text);
-                        if (phoneError && validatePhone(text)) setPhoneError('');
-                      }}
+                      onChangeText={handlePhoneNumberChange}
+                      onFocus={handlePhoneFocus}
                       returnKeyType="next"
                       onSubmitEditing={() => focusNextInput(emailRef)}
                       textContentType="telephoneNumber"
+                      selectTextOnFocus={false}
+                      editable={!isSubmitting}
+                      autoCorrect={false}
+                      autoCapitalize="none"
                     />
                     {isCheckingPhone && (
                       <ActivityIndicator 

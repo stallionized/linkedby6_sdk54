@@ -15,6 +15,7 @@ import {
   SafeAreaView,
   StatusBar,
   KeyboardAvoidingView,
+  Modal,
 } from 'react-native';
 import Toast from 'react-native-toast-message';
 import { v4 as uuidv4 } from 'uuid';
@@ -22,6 +23,8 @@ import { supabase } from './supabaseClient';
 import { getSession } from './Auth';
 import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
+import BusinessProfileInterviewChat from './components/BusinessProfileInterviewChat';
+import { searchIndustries } from './utils/industryData';
 // Conditional imports for native modules to avoid errors
 let Location, MapView, Marker;
 try {
@@ -49,7 +52,8 @@ const BusinessProfileScreen = ({ navigation, route }) => {
   const [profileId, setProfileId] = useState(null);
   const [businessId, setBusinessId] = useState(null);
   const [loading, setLoading] = useState(true);
-  
+  const [initialBusinessStatus, setInitialBusinessStatus] = useState(null);
+
   // State for business profile data
   const [businessName, setBusinessName] = useState('');
   const [businessDescription, setBusinessDescription] = useState('');
@@ -94,6 +98,15 @@ const BusinessProfileScreen = ({ navigation, route }) => {
   const [location, setLocation] = useState(null);
   const [mapRegion, setMapRegion] = useState(null);
   
+  // State for AI Assistant (replaced with targeted helpers)
+  const [showAIAssistant, setShowAIAssistant] = useState(false);
+  const [isGeneratingDescription, setIsGeneratingDescription] = useState(false);
+  const [showSmartToolsMenu, setShowSmartToolsMenu] = useState(false);
+
+  // State for industry autocomplete
+  const [industrySuggestions, setIndustrySuggestions] = useState([]);
+  const [showIndustrySuggestions, setShowIndustrySuggestions] = useState(false);
+
   // State for hours of operation
   const [hours, setHours] = useState([
     { day: 'Monday', open: '', close: '', isClosed: false, is24Hours: false },
@@ -269,6 +282,79 @@ const BusinessProfileScreen = ({ navigation, route }) => {
     setCurrentPlanInfo(updatedPlanInfo);
   };
 
+  // Reusable function to load business profile data
+  const loadBusinessProfile = async () => {
+    try {
+      const session = await getSession();
+      if (!session) {
+        console.log('No active session found');
+        return;
+      }
+
+      const currentUserId = session.user.id;
+
+      // Fetch business profile
+      const { data: profileData, error: profileError } = await supabase
+        .from('business_profiles')
+        .select('*, business_status, is_active')
+        .eq('user_id', currentUserId)
+        .single();
+
+      if (profileError || !profileData) {
+        console.error('Error fetching business profile:', profileError);
+        return;
+      }
+
+      // Update all form fields with profile data
+      setProfileId(profileData.id);
+      setInitialBusinessStatus(profileData.business_status);
+
+      if (profileData.business_id) {
+        setBusinessId(profileData.business_id);
+      }
+
+      setBusinessName(profileData.business_name || '');
+      setBusinessDescription(profileData.description || '');
+      setIndustry(profileData.industry || '');
+      setPhone(profileData.phone || '');
+      setEmail(profileData.contact_email || '');
+      setWebsite(profileData.website || '');
+      setAddress(profileData.address || '');
+      setCity(profileData.city || '');
+      setState(profileData.state || '');
+      setZipCode(profileData.zip_code || '');
+      setLocationType(profileData.location_type || '');
+      setCoverageType(profileData.coverage_type || '');
+      setCoverageDetails(profileData.coverage_details || '');
+      setCoverageRadius(profileData.coverage_radius ? profileData.coverage_radius.toString() : '10');
+
+      if (profileData.image_url) {
+        setLogoImage(profileData.image_url);
+      }
+
+      if (profileData.business_photos && Array.isArray(profileData.business_photos)) {
+        setBusinessPhotos(profileData.business_photos);
+      }
+
+      if (profileData.hours && typeof profileData.hours === 'object') {
+        setHours(profileData.hours);
+      }
+
+      // Geocode address for map
+      if (profileData.address && profileData.city && profileData.state) {
+        geocodeAddress(`${profileData.address}, ${profileData.city}, ${profileData.state} ${profileData.zip_code}`);
+      }
+
+      if (profileData.business_id) {
+        fetchBusinessEmployees(profileData.business_id);
+      }
+
+      console.log('Business profile loaded successfully');
+    } catch (error) {
+      console.error('Error loading business profile:', error);
+    }
+  };
+
   // Fetch user session and profile data on component mount
   useEffect(() => {
     const fetchUserAndProfile = async () => {
@@ -340,22 +426,24 @@ const BusinessProfileScreen = ({ navigation, route }) => {
         if (profileData) {
           setProfileId(profileData.id);
           
-          // Check business profile status for access control
+          // Check business profile status
           const businessStatus = profileData.business_status;
           const isActive = profileData.is_active;
-          
+
           console.log('Business profile status check:', { businessStatus, isActive });
-          
-          // If business profile exists but is not active, redirect to pricing
-          if (businessStatus !== 'Active' || !isActive) {
-            console.log('Business profile exists but is not active. Status:', businessStatus, 'Active:', isActive);
-            console.log('Redirecting to BusinessPricing for subscription setup');
-            navigation.navigate('BusinessPricing');
-            return;
+
+          // Store initial business status to track if we're completing an incomplete profile
+          setInitialBusinessStatus(businessStatus);
+
+          // Allow user to complete profile regardless of status
+          // This screen is used both for setup (Incomplete status) and editing (Active status)
+          if (businessStatus === 'Incomplete') {
+            console.log('Business profile has Incomplete status. User needs to complete required fields.');
+          } else if (businessStatus === 'Active') {
+            console.log('Business profile is Active. User can edit their profile.');
+          } else {
+            console.log('Business profile has status:', businessStatus);
           }
-          
-          // Business profile is active, allow access
-          console.log('Business profile is active, allowing access to profile screen');
           
           if (profileData.business_id) {
             setBusinessId(profileData.business_id);
@@ -465,7 +553,69 @@ const BusinessProfileScreen = ({ navigation, route }) => {
       console.log('BusinessProfileScreen: Missing user information for employee initialization:', { currentUserFullName, currentUserPhoneNumber });
     }
   };
-  
+
+  // Handle industry input changes with autocomplete
+  const handleIndustryChange = (text) => {
+    setIndustry(text);
+
+    if (text.trim().length >= 2) {
+      const suggestions = searchIndustries(text);
+      setIndustrySuggestions(suggestions);
+      setShowIndustrySuggestions(suggestions.length > 0);
+    } else {
+      setIndustrySuggestions([]);
+      setShowIndustrySuggestions(false);
+    }
+  };
+
+  const selectIndustrySuggestion = (selectedIndustry) => {
+    setIndustry(selectedIndustry);
+    setShowIndustrySuggestions(false);
+    setIndustrySuggestions([]);
+  };
+
+  // AI-powered business description generator
+  const generateBusinessDescription = async () => {
+    if (!businessName || !industry) {
+      Alert.alert(
+        'Missing Information',
+        'Please enter your business name and industry first to generate a description.'
+      );
+      return;
+    }
+
+    try {
+      setIsGeneratingDescription(true);
+
+      const { data, error } = await supabase.functions.invoke('generate_business_description', {
+        body: {
+          businessName,
+          industry,
+          existingDescription: businessDescription || null,
+        },
+      });
+
+      if (error) throw error;
+
+      if (data && data.description) {
+        setBusinessDescription(data.description);
+        Alert.alert(
+          'Description Generated!',
+          'AI has generated a professional business description. You can edit it as needed.',
+          [{ text: 'OK' }]
+        );
+      }
+    } catch (error) {
+      console.error('Error generating description:', error);
+      Alert.alert(
+        'Generation Failed',
+        'Failed to generate description. Please try again or write it manually.'
+      );
+    } finally {
+      setIsGeneratingDescription(false);
+    }
+  };
+
   // Fetch business employees from Supabase
   const fetchBusinessEmployees = async (business_id_to_fetch) => {
     if (!business_id_to_fetch) {
@@ -612,65 +762,77 @@ const BusinessProfileScreen = ({ navigation, route }) => {
     return uri;
   };
 
+  // Validate all required fields and provide detailed feedback
+  const validateForm = () => {
+    const errors = [];
+
+    // Required fields validation
+    if (!businessName.trim()) {
+      errors.push('• Business Name is required');
+    }
+
+    if (!industry.trim()) {
+      errors.push('• Industry is required');
+    }
+
+    if (!businessDescription.trim()) {
+      errors.push('• Business Description is required');
+    }
+
+    if (!phone.trim()) {
+      errors.push('• Phone Number is required');
+    } else if (!validatePhone(phone)) {
+      errors.push('• Phone Number is invalid');
+    }
+
+    if (!email.trim()) {
+      errors.push('• Email Address is required');
+    } else if (!validateEmail(email)) {
+      errors.push('• Email Address is invalid');
+    }
+
+    if (!city.trim()) {
+      errors.push('• City is required');
+    }
+
+    if (!state.trim()) {
+      errors.push('• State is required');
+    }
+
+    if (!locationType) {
+      errors.push('• Location Type is required (Storefront, Office, or No Physical Location)');
+    }
+
+    if (!coverageType) {
+      errors.push('• Coverage Area is required');
+    }
+
+    // Optional field validations
+    if (website && !validateWebsite(website)) {
+      errors.push('• Website URL is invalid');
+    }
+
+    return errors;
+  };
+
   // Form submission handler
   const handleSubmit = async () => {
     console.log('Submit button pressed');
     setIsSubmitting(true);
 
     try {
-      // Validations
-      if (!businessName.trim()) {
-        Alert.alert('Missing Information', 'Please enter your business name.');
-        showToast('Please enter your business name', false);
-        throw new Error("Validation: Business name missing");
-      }
+      // Validate all fields
+      const validationErrors = validateForm();
 
-      if (!businessDescription.trim()) {
-        Alert.alert('Missing Information', 'Please enter a description for your business.');
-        showToast('Please enter a business description', false);
-        throw new Error("Validation: Description missing");
-      }
-
-      if (!logoImage) {
-        Alert.alert('Missing Logo', 'Please upload a logo for your business.');
-        showToast('Please upload a logo', false);
-        throw new Error("Validation: Logo missing");
-      }
-
-      if (!coverageType) {
-        Alert.alert('Missing Coverage Area', 'Please select a coverage type for your business.');
-        showToast('Please select a coverage type', false);
-        throw new Error("Validation: Coverage type missing");
-      }
-
-      if (!phone.trim()) {
-        Alert.alert('Missing Contact Information', 'Please enter a phone number for your business.');
-        showToast('Please enter a phone number', false);
-        throw new Error("Validation: Phone number missing");
-      }
-
-      if (!validatePhone(phone)) {
-        Alert.alert('Invalid Phone Number', 'Please enter a valid phone number.');
-        showToast('Please enter a valid phone number', false);
-        throw new Error("Validation: Invalid phone number");
-      }
-
-      if (!email.trim()) {
-        Alert.alert('Missing Contact Information', 'Please enter an email address for your business.');
-        showToast('Please enter an email address', false);
-        throw new Error("Validation: Email missing");
-      }
-
-      if (!validateEmail(email)) {
-        Alert.alert('Invalid Email', 'Please enter a valid email address.');
-        showToast('Please enter a valid email address', false);
-        throw new Error("Validation: Invalid email");
-      }
-
-      if (website && !validateWebsite(website)) {
-        Alert.alert('Invalid Website', 'Please enter a valid website URL.');
-        showToast('Please enter a valid website URL', false);
-        throw new Error("Validation: Invalid website");
+      if (validationErrors.length > 0) {
+        const errorMessage = validationErrors.join('\n');
+        Alert.alert(
+          'Please Complete Required Fields',
+          errorMessage,
+          [{ text: 'OK' }]
+        );
+        showToast('Please complete all required fields', false);
+        throw new Error("Validation: Missing required fields");
       }
 
       console.log('Form validation passed, proceeding with submission');
@@ -717,6 +879,8 @@ const BusinessProfileScreen = ({ navigation, route }) => {
         coverage_radius: coverageRadius ? parseFloat(coverageRadius) : null,
         business_photos: processedPhotoUrls,
         hours: hours,
+        business_status: 'Active', // Set status to Active when profile is completed
+        is_active: true, // Activate the profile
         updated_at: new Date(),
       };
 
@@ -746,11 +910,60 @@ const BusinessProfileScreen = ({ navigation, route }) => {
 
       await saveBusinessEmployees(currentBusinessIdFromResult);
 
-      showToast('Profile saved successfully!', true);
+      // Trigger AI enrichment and embeddings generation
+      console.log('Triggering business profile enrichment...');
+      try {
+        const { data: enrichData, error: enrichError } = await supabase.functions.invoke('enrich_business_profile', {
+          body: {
+            business_id: currentBusinessIdFromResult,
+            business_data: {
+              business_name: businessName.trim(),
+              industry: industry.trim(),
+              description: businessDescription.trim(),
+              city: city.trim(),
+              state: state.trim(),
+              zip_code: zipCode.trim(),
+              coverage_type: coverageType,
+              coverage_radius: coverageRadius ? parseFloat(coverageRadius) : null,
+              service_areas: coverageDetails ? [coverageDetails] : [],
+            },
+          },
+        });
+
+        if (enrichError) {
+          console.error('Enrichment error:', enrichError);
+          // Don't fail the whole save if enrichment fails - it can be regenerated later
+        } else {
+          console.log('Business profile enriched successfully:', enrichData);
+        }
+      } catch (enrichmentError) {
+        console.error('Failed to trigger enrichment:', enrichmentError);
+        // Continue - enrichment is a non-critical enhancement
+      }
+
+      // Check if this was completing an incomplete profile (changing from Incomplete to Active)
+      const wasIncomplete = initialBusinessStatus === 'Incomplete';
+      const successMessage = wasIncomplete
+        ? 'Your business profile has been activated and enriched with AI!'
+        : 'Profile updated and enriched successfully!';
+
+      showToast(successMessage, true);
       Alert.alert(
-        'Profile Saved',
-        `Your business profile has been ${profileId || businessId ? 'updated' : 'created'} successfully!`,
-        [{ text: 'OK', onPress: () => navigation.navigate('MainApp') }]
+        wasIncomplete ? 'Business Profile Activated!' : 'Profile Saved',
+        wasIncomplete
+          ? 'Your business profile has been activated! You can now access business mode.'
+          : `Your business profile has been updated successfully!`,
+        [{
+          text: 'OK',
+          onPress: () => {
+            // If profile was just completed from Incomplete, navigate to business mode
+            if (wasIncomplete) {
+              navigation.navigate('BusinessAnalytics');
+            } else {
+              navigation.goBack();
+            }
+          }
+        }]
       );
 
     } catch (error) {
@@ -812,45 +1025,6 @@ const BusinessProfileScreen = ({ navigation, route }) => {
       showToast(`Failed to save employee data: ${error.message}`, false);
       return null;
     }
-  };
-
-  // Navigate to preview screen
-  const navigateToPreview = async () => {
-    let processedLogoImage = logoImage;
-    if (logoImage && !logoImage.startsWith('data:')) {
-      try {
-        processedLogoImage = await processImageUrl(logoImage);
-      } catch (error) {
-        console.error('Error processing logo for preview:', error);
-      }
-    }
-
-    navigation.navigate('BusinessProfilePreview', {
-      businessId: businessId,
-      profileData: {
-        logo: processedLogoImage,
-        logoBackgroundColor: logoBackgroundColor,
-        businessName: businessName || 'Business Name',
-        industry: industry || 'Industry',
-        description: businessDescription || 'Business description will appear here...',
-        contactInfo: {
-          phone: phone || 'Not specified',
-          email: email || 'Not specified',
-          website: website || '',
-          address: address || '',
-          city: city || '',
-          state: state || '',
-          zipCode: zipCode || '',
-          locationType: locationType || '',
-        },
-        coverageArea: {
-          type: coverageType || 'Not specified',
-          details: coverageDetails || '',
-          radius: coverageType === 'local' ? coverageRadius : '',
-        },
-        businessId: businessId,
-      },
-    });
   };
 
   // Update hours function
@@ -966,19 +1140,70 @@ const BusinessProfileScreen = ({ navigation, route }) => {
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#F8F9FA" />
-      
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity 
-          style={styles.backButton}
-          onPress={() => navigation.goBack()}
-        >
-          <Ionicons name="arrow-back" size={24} color="#0D47A1" />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Business Profile</Text>
-        <TouchableOpacity style={styles.previewButton} onPress={navigateToPreview}>
-          <Text style={styles.previewButtonText}>Preview</Text>
-        </TouchableOpacity>
+
+      {/* Header matching MobileHeader structure */}
+      <View style={styles.headerContainer}>
+        <View style={styles.headerContent}>
+          {/* Left Section - Back Button */}
+          <View style={styles.leftSection}>
+            <TouchableOpacity
+              style={styles.iconButton}
+              onPress={() => {
+                if (navigation.canGoBack()) {
+                  navigation.goBack();
+                } else {
+                  navigation.navigate('Search');
+                }
+              }}
+            >
+              <Ionicons name="arrow-back" size={24} color="#1E88E5" />
+            </TouchableOpacity>
+          </View>
+
+          {/* Center Section - Title */}
+          <View style={styles.centerSection}>
+            <Text style={styles.headerTitle}>Business Profile</Text>
+          </View>
+
+          {/* Right Section - Smart Tools Button */}
+          <View style={styles.rightSection}>
+            <TouchableOpacity
+              style={styles.aiAssistantButton}
+              onPress={() => setShowSmartToolsMenu(!showSmartToolsMenu)}
+            >
+              <Ionicons name="construct" size={24} color="#667eea" />
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        {/* Smart Tools Menu */}
+        {showSmartToolsMenu && (
+          <View style={styles.smartToolsMenu}>
+            <TouchableOpacity
+              style={styles.smartToolItem}
+              onPress={() => {
+                setShowSmartToolsMenu(false);
+                generateBusinessDescription();
+              }}
+              disabled={isGeneratingDescription}
+            >
+              <Ionicons name="sparkles" size={20} color="#667eea" />
+              <Text style={styles.smartToolText}>Generate Business Description</Text>
+              {isGeneratingDescription && <ActivityIndicator size="small" color="#667eea" />}
+            </TouchableOpacity>
+            <View style={styles.smartToolDivider} />
+            <TouchableOpacity
+              style={styles.smartToolItem}
+              onPress={() => {
+                setShowSmartToolsMenu(false);
+                Alert.alert('Coming Soon', 'Industry suggestions feature is coming soon!');
+              }}
+            >
+              <Ionicons name="bulb-outline" size={20} color="#667eea" />
+              <Text style={styles.smartToolText}>Industry Suggestions</Text>
+            </TouchableOpacity>
+          </View>
+        )}
       </View>
 
       <KeyboardAvoidingView 
@@ -1065,18 +1290,50 @@ const BusinessProfileScreen = ({ navigation, route }) => {
             </View>
 
             <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Industry</Text>
+              <Text style={styles.inputLabel}>Industry *</Text>
               <TextInput
                 style={styles.textInput}
                 value={industry}
-                onChangeText={setIndustry}
-                placeholder="e.g. Retail, Technology, Food & Beverage"
+                onChangeText={handleIndustryChange}
+                placeholder="e.g. Hair Salon, Plumbing, Restaurant"
                 placeholderTextColor="#A0A0A0"
               />
+
+              {/* Industry suggestions dropdown */}
+              {showIndustrySuggestions && industrySuggestions.length > 0 && (
+                <View style={styles.suggestionsContainer}>
+                  {industrySuggestions.map((suggestion, index) => (
+                    <TouchableOpacity
+                      key={index}
+                      style={styles.suggestionItem}
+                      onPress={() => selectIndustrySuggestion(suggestion)}
+                    >
+                      <Ionicons name="business-outline" size={16} color="#667eea" />
+                      <Text style={styles.suggestionText}>{suggestion}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              )}
             </View>
 
             <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Business Description *</Text>
+              <View style={styles.labelRow}>
+                <Text style={styles.inputLabel}>Business Description *</Text>
+                <TouchableOpacity
+                  style={styles.aiHelperButton}
+                  onPress={generateBusinessDescription}
+                  disabled={isGeneratingDescription}
+                >
+                  {isGeneratingDescription ? (
+                    <ActivityIndicator size="small" color="#667eea" />
+                  ) : (
+                    <>
+                      <Ionicons name="sparkles" size={16} color="#667eea" />
+                      <Text style={styles.aiHelperButtonText}>AI Generate</Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+              </View>
               <TextInput
                 style={[styles.textInput, styles.textArea]}
                 value={businessDescription}
@@ -1101,8 +1358,7 @@ const BusinessProfileScreen = ({ navigation, route }) => {
               {[
                 { key: 'local', icon: 'location', label: 'Local' },
                 { key: 'regional', icon: 'map', label: 'Regional' },
-                { key: 'national', icon: 'flag', label: 'National' },
-                { key: 'international', icon: 'globe', label: 'International' }
+                { key: 'national', icon: 'flag', label: 'National' }
               ].map((type) => (
                 <TouchableOpacity
                   key={type.key}
@@ -1112,10 +1368,10 @@ const BusinessProfileScreen = ({ navigation, route }) => {
                   ]}
                   onPress={() => setCoverageType(type.key)}
                 >
-                  <Ionicons 
-                    name={type.icon} 
-                    size={18} 
-                    color={coverageType === type.key ? '#FFFFFF' : '#5C6BC0'} 
+                  <Ionicons
+                    name={type.icon}
+                    size={24}
+                    color={coverageType === type.key ? '#FFFFFF' : '#5C6BC0'}
                   />
                   <Text style={[
                     styles.coverageTypeText,
@@ -1283,10 +1539,10 @@ const BusinessProfileScreen = ({ navigation, route }) => {
                     ]}
                     onPress={() => setLocationType(type.key)}
                   >
-                    <Ionicons 
-                      name={type.icon} 
-                      size={20} 
-                      color={locationType === type.key ? '#FFFFFF' : '#5C6BC0'} 
+                    <Ionicons
+                      name={type.icon}
+                      size={24}
+                      color={locationType === type.key ? '#FFFFFF' : '#5C6BC0'}
                     />
                     <Text style={[
                       styles.locationTypeText,
@@ -1435,7 +1691,40 @@ const BusinessProfileScreen = ({ navigation, route }) => {
           </TouchableOpacity>
         </ScrollView>
       </KeyboardAvoidingView>
-      
+
+      {/* AI Assistant Modal - DEPRECATED: Replaced with targeted AI helpers */}
+      {/*
+      <Modal
+        visible={showAIAssistant}
+        animationType="slide"
+        presentationStyle="fullScreen"
+        onRequestClose={() => setShowAIAssistant(false)}
+      >
+        <BusinessProfileInterviewChat
+          businessId={businessId}
+          onComplete={async (result) => {
+            setShowAIAssistant(false);
+            await loadBusinessProfile();
+            Alert.alert(
+              'Profile Information Collected!',
+              'Your business information has been saved. To complete your profile, please upload a logo and business photos.',
+              [
+                {
+                  text: 'Upload Logo Now',
+                  onPress: () => pickLogo(),
+                },
+                {
+                  text: 'Upload Later',
+                  style: 'cancel',
+                },
+              ]
+            );
+          }}
+          onCancel={() => setShowAIAssistant(false)}
+        />
+      </Modal>
+      */}
+
       <Toast />
     </SafeAreaView>
   );
@@ -1457,37 +1746,52 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#0D47A1',
   },
-  header: {
+  // Header styles matching MobileHeader component
+  headerContainer: {
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 20,
+    height: 62,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E0E7FF',
+    elevation: 2,
+    zIndex: 10,
+    justifyContent: 'center',
+  },
+  headerContent: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingVertical: 15,
-    backgroundColor: '#FFFFFF',
-    borderBottomWidth: 1,
-    borderBottomColor: '#E0E0E0',
   },
-  backButton: {
-    padding: 8,
+  leftSection: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 0,
+    width: 40,
+  },
+  centerSection: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  rightSection: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    flex: 0,
+    width: 40,
+  },
+  iconButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   headerTitle: {
     fontSize: 18,
     fontWeight: 'bold',
     color: '#0D47A1',
-    flex: 1,
     textAlign: 'center',
-  },
-  previewButton: {
-    paddingHorizontal: 15,
-    paddingVertical: 8,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: '#1E88E5',
-  },
-  previewButtonText: {
-    color: '#1E88E5',
-    fontWeight: '600',
-    fontSize: 14,
   },
   scrollView: {
     flex: 1,
@@ -1615,17 +1919,16 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   coverageTypeButton: {
-    flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#F5F7FF',
     borderWidth: 1,
     borderColor: '#5C6BC0',
     borderRadius: 8,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    minWidth: '22%',
-    flex: 1,
+    paddingVertical: 14,
+    paddingHorizontal: 8,
+    width: '31%',
     justifyContent: 'center',
+    minHeight: 75,
   },
   coverageTypeButtonActive: {
     backgroundColor: '#5C6BC0',
@@ -1634,8 +1937,9 @@ const styles = StyleSheet.create({
   coverageTypeText: {
     color: '#5C6BC0',
     fontWeight: '500',
-    fontSize: 13,
-    marginLeft: 5,
+    fontSize: 11,
+    marginTop: 6,
+    textAlign: 'center',
   },
   coverageTypeTextActive: {
     color: '#FFFFFF',
@@ -1673,17 +1977,19 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 8,
+    marginTop: 8,
   },
   locationTypeButton: {
-    flex: 1,
+    width: '48%',
     backgroundColor: '#F8F9FA',
     borderWidth: 1,
     borderColor: '#D1D9E6',
     borderRadius: 8,
-    padding: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 8,
     alignItems: 'center',
     justifyContent: 'center',
-    minWidth: 100,
+    minHeight: 75,
   },
   locationTypeButtonActive: {
     backgroundColor: '#5C6BC0',
@@ -1692,15 +1998,16 @@ const styles = StyleSheet.create({
   locationTypeText: {
     color: '#5C6BC0',
     fontWeight: '500',
-    fontSize: 12,
+    fontSize: 11,
     textAlign: 'center',
-    marginTop: 4,
+    marginTop: 6,
   },
   locationTypeTextActive: {
     color: '#FFFFFF',
   },
   mapContainer: {
     marginTop: 15,
+    marginBottom: 20,
   },
   map: {
     width: '100%',
@@ -1845,6 +2152,94 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 16,
     fontWeight: 'bold',
+  },
+  aiAssistantButton: {
+    padding: 8,
+    borderRadius: 8,
+    backgroundColor: '#F5F7FF',
+  },
+  // Smart Tools Menu styles
+  smartToolsMenu: {
+    position: 'absolute',
+    top: 62,
+    right: 10,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    elevation: 5,
+    zIndex: 1000,
+    minWidth: 240,
+  },
+  smartToolItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+  },
+  smartToolText: {
+    marginLeft: 12,
+    fontSize: 15,
+    color: '#333',
+    flex: 1,
+  },
+  smartToolDivider: {
+    height: 1,
+    backgroundColor: '#E0E0E0',
+    marginVertical: 4,
+  },
+  // Label row with AI helper button
+  labelRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  aiHelperButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    backgroundColor: '#F5F7FF',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#667eea',
+  },
+  aiHelperButtonText: {
+    marginLeft: 6,
+    fontSize: 13,
+    color: '#667eea',
+    fontWeight: '600',
+  },
+  // Industry suggestions dropdown
+  suggestionsContainer: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 8,
+    marginTop: 4,
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+    maxHeight: 200,
+  },
+  suggestionItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F0F0F0',
+  },
+  suggestionText: {
+    marginLeft: 10,
+    fontSize: 15,
+    color: '#333',
   },
 });
 

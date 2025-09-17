@@ -35,11 +35,10 @@ const colors = {
   error: '#EF4444',
 };
 
-const BusinessMessagesScreen = ({ navigation }) => {
+const BusinessMessagesScreen = ({ navigation, isBusinessMode, onBusinessModeToggle }) => {
   const { user } = useAuth();
   const [conversations, setConversations] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [isBusinessMode, setIsBusinessMode] = useState(false);
   const [userBusinessProfile, setUserBusinessProfile] = useState(null);
   
   // Typing indicator states
@@ -311,7 +310,9 @@ const BusinessMessagesScreen = ({ navigation }) => {
 
   const toggleBusinessMode = () => {
     if (userBusinessProfile) {
-      setIsBusinessMode(!isBusinessMode);
+      if (onBusinessModeToggle) {
+        onBusinessModeToggle(!isBusinessMode);
+      }
     } else {
       Alert.alert(
         'Business Profile Required',
@@ -455,6 +456,8 @@ const BusinessMessagesScreen = ({ navigation }) => {
         navigation={navigation}
         title="Messages"
         showBackButton={false}
+        isBusinessMode={isBusinessMode}
+        onBusinessModeToggle={onBusinessModeToggle}
       />
       
       <View style={styles.content}>

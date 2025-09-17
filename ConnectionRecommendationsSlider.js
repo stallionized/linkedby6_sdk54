@@ -25,6 +25,7 @@ import { getSession } from './Auth';
 import BusinessProfileSlider from './BusinessProfileSlider';
 import AddToProjectSlider from './AddToProjectSlider';
 import ConnectionGraphDisplay from './ConnectionGraphDisplay';
+import BusinessLogoInitials from './components/BusinessLogoInitials';
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 
@@ -62,117 +63,15 @@ const getColorFromName = (name) => {
   return colors[index];
 };
 
-// Business Logo Component (same as SearchScreen)
+// Business Logo Component - now uses BusinessLogoInitials with 2-letter fallback
 const BusinessLogo = ({ business }) => {
-  const [bgColor, setBgColor] = useState(getColorFromName(business.business_name || 'Business'));
-  const [imageLoaded, setImageLoaded] = useState(false);
-  
-  // Function to extract dominant color from image
-  const extractDominantColor = async (imageUri) => {
-    try {
-      // For now, we'll use a smart color extraction based on the business name and industry
-      // This provides better color matching than random colors
-      const businessName = business.business_name?.toLowerCase() || '';
-      const industry = business.industry?.toLowerCase() || '';
-      
-      // Define color mappings for common business types
-      const colorMappings = {
-        // Automotive
-        'auto': '#1E3A8A', 'car': '#1E3A8A', 'automotive': '#1E3A8A', 'dealership': '#1E3A8A',
-        'leasing': '#0F172A', 'rental': '#374151',
-        
-        // Technology
-        'tech': '#3B82F6', 'software': '#3B82F6', 'digital': '#3B82F6', 'it': '#3B82F6',
-        
-        // Food & Restaurant
-        'restaurant': '#DC2626', 'food': '#DC2626', 'cafe': '#92400E', 'bakery': '#D97706',
-        
-        // Health & Medical
-        'medical': '#059669', 'health': '#059669', 'dental': '#059669', 'clinic': '#059669',
-        
-        // Finance
-        'bank': '#1E40AF', 'finance': '#1E40AF', 'insurance': '#1E40AF', 'investment': '#1E40AF',
-        
-        // Real Estate
-        'real estate': '#7C2D12', 'property': '#7C2D12', 'construction': '#92400E',
-        
-        // Retail
-        'retail': '#7C3AED', 'store': '#7C3AED', 'shop': '#7C3AED', 'boutique': '#7C3AED',
-        
-        // Services
-        'consulting': '#374151', 'service': '#374151', 'agency': '#374151',
-        
-        // Default colors for specific business names
-        'fast lane': '#0F172A', // Dark color for Fast Lane Leasing
-      };
-      
-      // Check for specific business name matches first
-      for (const [key, color] of Object.entries(colorMappings)) {
-        if (businessName.includes(key)) {
-          return color;
-        }
-      }
-      
-      // Check industry matches
-      for (const [key, color] of Object.entries(colorMappings)) {
-        if (industry.includes(key)) {
-          return color;
-        }
-      }
-      
-      // Fallback to original color generation but with better colors
-      const betterColors = [
-        '#1E3A8A', '#DC2626', '#059669', '#7C2D12', '#7C3AED',
-        '#0F172A', '#374151', '#92400E', '#1E40AF', '#BE185D'
-      ];
-      
-      let hash = 0;
-      const nameToHash = businessName || 'business';
-      for (let i = 0; i < nameToHash.length; i++) {
-        hash = nameToHash.charCodeAt(i) + ((hash << 5) - hash);
-      }
-      const index = Math.abs(hash) % betterColors.length;
-      return betterColors[index];
-      
-    } catch (error) {
-      console.log('Error extracting color, using fallback');
-      return getColorFromName(business.business_name || 'Business');
-    }
-  };
-  
-  // Update background color when image loads
-  const handleImageLoad = async () => {
-    setImageLoaded(true);
-    if (business.image_url) {
-      const dominantColor = await extractDominantColor(business.image_url);
-      setBgColor(dominantColor);
-    }
-  };
-  
-  // Set initial color based on business info
-  React.useEffect(() => {
-    const setInitialColor = async () => {
-      const smartColor = await extractDominantColor(business.image_url);
-      setBgColor(smartColor);
-    };
-    setInitialColor();
-  }, [business.business_name, business.industry]);
-  
   return (
-    <View style={[styles.businessLogo, { backgroundColor: bgColor }]}>
-      {business.image_url ? (
-        <Image 
-          source={{ uri: business.image_url }} 
-          style={styles.businessLogoImage}
-          onLoad={handleImageLoad}
-          onError={() => setImageLoaded(false)}
-        />
-      ) : (
-        <Text style={styles.businessLogoText}>
-          {business.business_name ? business.business_name.charAt(0).toUpperCase() : 'B'}
-        </Text>
-      )}
-    </View>
+    <BusinessLogoInitials
+      businessName={business.business_name}
+      imageUrl={business.image_url}
+      backgroundColor={business.logo_dominant_color}
+      size={72}
+    />
   );
 };
 
@@ -200,22 +99,24 @@ const BusinessCard = ({
           {business.industry && (
             <Text style={styles.businessIndustry} numberOfLines={1}>{business.industry}</Text>
           )}
-          <View style={styles.businessLocation}>
-            <Ionicons name="location-outline" size={14} color={colors.textMedium} />
-            <Text style={styles.businessLocationText} numberOfLines={1}>
-              {business.city && business.state ? `${business.city}, ${business.state}` : 
-               business.zip_code || 'Location not specified'}
-            </Text>
-          </View>
-          
-          {/* Coverage Info */}
-          {business.coverage_type && (
+
+          {/* Show location only if coverage is local or not set */}
+          {(!business.coverage_type || business.coverage_type === 'local') && (
+            <View style={styles.businessLocation}>
+              <Ionicons name="location-outline" size={14} color={colors.textMedium} />
+              <Text style={styles.businessLocationText} numberOfLines={1}>
+                {business.city && business.state ? `${business.city}, ${business.state}` :
+                 business.zip_code || 'Location not specified'}
+              </Text>
+            </View>
+          )}
+
+          {/* Show coverage info only if regional or national */}
+          {business.coverage_type && (business.coverage_type === 'regional' || business.coverage_type === 'national') && (
             <View style={styles.coverageInfo}>
               <Ionicons name="business-outline" size={12} color={colors.textMedium} />
               <Text style={styles.coverageText}>
                 {business.coverage_type.charAt(0).toUpperCase() + business.coverage_type.slice(1)}
-                {business.coverage_type === 'local' && business.coverage_radius && 
-                  ` (${business.coverage_radius}mi)`}
               </Text>
             </View>
           )}
@@ -471,16 +372,17 @@ const ConnectionRecommendationsSlider = ({
       const { data: businessData, error: businessError } = await supabase
         .from('business_profiles')
         .select(`
-          business_id, 
-          business_name, 
-          description, 
-          industry, 
-          image_url, 
-          city, 
-          state, 
-          zip_code, 
-          coverage_type, 
-          coverage_details, 
+          business_id,
+          business_name,
+          description,
+          industry,
+          image_url,
+          logo_dominant_color,
+          city,
+          state,
+          zip_code,
+          coverage_type,
+          coverage_details,
           coverage_radius
         `)
         .in('business_id', businessIds);
@@ -952,6 +854,7 @@ const styles = StyleSheet.create({
   },
   businessCardInfo: {
     flex: 1,
+    marginLeft: 12,
     marginRight: 8,
   },
   businessName: {

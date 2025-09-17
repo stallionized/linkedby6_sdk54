@@ -1,0 +1,26 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install:*)",
+      "Bash(dir:*)",
+      "Bash(findstr:*)",
+      "Bash(ipconfig:*)",
+      "Bash(ls:*)",
+      "Bash(find:*)",
+      "Bash(grep:*)",
+      "Bash(powershell -Command:*)",
+      "Bash(./node_modules/.bin/vite:*)",
+      "Bash(npx:*)",
+      "Bash(npm ls:*)",
+      "Bash(npm run dev:*)",
+      "Bash(curl:*)",
+      "Bash(taskkill:*)",
+      "Bash(tree:*)",
+      "Bash(cat:*)",
+      "Bash(npm run web:*)",
+      "Bash(timeout /t:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

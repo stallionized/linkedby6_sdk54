@@ -1,0 +1,10 @@
+{
+  "name": "linked-by-six-root",
+  "version": "1.0.0",
+  "description": "Root package.json for Netlify deployment",
+  "scripts": {
+    "build": "cd MyExpoApp && npx expo export --platform web",
+    "start": "cd MyExpoApp && npm start"
+  },
+  "private": true
+}

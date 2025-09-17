@@ -155,13 +155,21 @@ class WebRTCService {
               this.handleCallStatusUpdate(payload.new);
             }
           )
-          .subscribe((status) => {
+          .subscribe((status, error) => {
+            console.log('Call subscription status:', status, error);
             if (status === 'SUBSCRIBED') {
               console.log('Call subscription established successfully');
               resolve();
             } else if (status === 'CHANNEL_ERROR') {
-              console.error('Call subscription failed');
-              reject(new Error('Failed to subscribe to call channel'));
+              console.error('Call subscription failed with status:', status);
+              console.error('Call subscription error details:', error);
+              reject(new Error(`Failed to subscribe to call channel: ${error?.message || 'Unknown error'}`));
+            } else if (status === 'TIMED_OUT') {
+              console.error('Call subscription timed out');
+              reject(new Error('Call subscription timed out'));
+            } else if (status === 'CLOSED') {
+              console.warn('Call subscription was closed');
+              // Don't reject on close during normal operation
             }
           });
       } catch (error) {
@@ -190,13 +198,21 @@ class WebRTCService {
               this.handleSignalingMessage(payload.new);
             }
           )
-          .subscribe((status) => {
+          .subscribe((status, error) => {
+            console.log('Signaling subscription status:', status, error);
             if (status === 'SUBSCRIBED') {
               console.log('Signaling subscription established successfully');
               resolve();
             } else if (status === 'CHANNEL_ERROR') {
-              console.error('Signaling subscription failed');
-              reject(new Error('Failed to subscribe to signaling channel'));
+              console.error('Signaling subscription failed with status:', status);
+              console.error('Signaling subscription error details:', error);
+              reject(new Error(`Failed to subscribe to signaling channel: ${error?.message || 'Unknown error'}`));
+            } else if (status === 'TIMED_OUT') {
+              console.error('Signaling subscription timed out');
+              reject(new Error('Signaling subscription timed out'));
+            } else if (status === 'CLOSED') {
+              console.warn('Signaling subscription was closed');
+              // Don't reject on close during normal operation
             }
           });
       } catch (error) {
