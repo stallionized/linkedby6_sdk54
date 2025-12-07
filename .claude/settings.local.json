@@ -48,7 +48,9 @@
       "Bash(adb shell \"dumpsys activity activities | grep -i ''mCurrentFocus\\|mFocusedActivity\\|sixdegrees''\")",
       "Bash(git add:*)",
       "Bash(git commit -m \"$(cat <<''EOF''\nAdd new features and improvements: AI interview system, social slider, business profile engagement, landing pages, and various bug fixes\n\n- Add AI interview data tracking and UX improvements\n- Add social slider with swipe-to-close functionality\n- Add business profile engagement components\n- Add new landing pages (Business, Consumer)\n- Add session timeout warning and activity tracker\n- Add OTP verification screen\n- Add constants, contexts, hooks, and utils\n- Add Supabase edge functions and deployment scripts\n- Add NativeWind/Tailwind CSS configuration\n- Update navigation and mobile header\n- Various documentation and architecture updates\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n)\")",
-      "Bash(del /f nul)"
+      "Bash(del /f nul)",
+      "Bash(git reset:*)",
+      "Bash(git commit:*)"
     ]
   },
   "enableAllProjectMcpServers": true,
