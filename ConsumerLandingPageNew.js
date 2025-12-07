@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from "react";
-import { View, useWindowDimensions, ActivityIndicator, Text } from "react-native";
+import { View, useWindowDimensions, ActivityIndicator, Text, StatusBar, Platform } from "react-native";
 import { useFonts } from "expo-font";
 import {
   Inter_300Light,
@@ -76,6 +76,13 @@ const ConsumerLandingPageNew = ({ navigation }) => {
   return (
     <ScrollContext.Provider value={{ scrollY, windowHeight }}>
       <View style={{ flex: 1, backgroundColor: "#020408" }}>
+        {Platform.OS === "android" && (
+          <StatusBar
+            translucent
+            backgroundColor="transparent"
+            barStyle="light-content"
+          />
+        )}
         <Navbar
           isBusiness={isBusiness}
           togglePage={togglePage}

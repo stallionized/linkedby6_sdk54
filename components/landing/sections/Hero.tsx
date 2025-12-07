@@ -382,8 +382,8 @@ const Hero: React.FC<HeroProps> = ({
             <ScrollReveal direction="up" delay={400} distance={30} animateOnMount>
               <View
                 style={{
-                  width: "85%",
-                  maxWidth: scale(300, width),
+                  width: "95%",
+                  maxWidth: scale(350, width),
                 }}
               >
                 <View

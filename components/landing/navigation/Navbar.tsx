@@ -20,6 +20,7 @@ import Animated, {
   Easing,
 } from "react-native-reanimated";
 import { useScrollContext } from "../../../contexts/landing/ScrollContext";
+import { navigate } from "../../../navigationRef";
 
 interface NavbarProps {
   isBusiness: boolean;
@@ -69,6 +70,11 @@ const Navbar: React.FC<NavbarProps> = ({ isBusiness, togglePage, scrollY }) => {
   const handleTogglePage = () => {
     togglePage();
     setIsMobileMenuOpen(false);
+  };
+
+  const handleLogin = () => {
+    setIsMobileMenuOpen(false);
+    navigate("LoginScreen");
   };
 
   // Animated style for backdrop blur (web only)
@@ -197,7 +203,7 @@ const Navbar: React.FC<NavbarProps> = ({ isBusiness, togglePage, scrollY }) => {
 
             {/* Desktop CTA Button */}
             {!isMobile && (
-              <Pressable>
+              <Pressable onPress={handleLogin}>
                 <LinearGradient
                   colors={["#007AFF", "#00C2FF"]}
                   start={{ x: 0, y: 0 }}
@@ -291,7 +297,7 @@ const Navbar: React.FC<NavbarProps> = ({ isBusiness, togglePage, scrollY }) => {
               </Pressable>
 
               <View style={{ marginTop: 32 }}>
-                <Pressable style={{ width: "100%" }}>
+                <Pressable style={{ width: "100%" }} onPress={handleLogin}>
                   <LinearGradient
                     colors={["#007AFF", "#00C2FF"]}
                     start={{ x: 0, y: 0 }}
