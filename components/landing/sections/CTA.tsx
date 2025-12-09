@@ -3,8 +3,13 @@ import { View, Text, TextInput, Pressable, Alert, useWindowDimensions, Platform 
 import { LinearGradient } from "expo-linear-gradient";
 import { ArrowRight } from "lucide-react-native";
 import ScrollReveal from "../ui/ScrollReveal";
+import { navigate } from "../../../navigationRef";
 
-const CTA: React.FC = () => {
+interface CTAProps {
+  isBusiness?: boolean;
+}
+
+const CTA: React.FC<CTAProps> = ({ isBusiness = false }) => {
   const [email, setEmail] = useState("");
   const { width } = useWindowDimensions();
   const isDesktop = width >= 640;
@@ -18,7 +23,9 @@ const CTA: React.FC = () => {
       Alert.alert("Error", "Please enter a valid email address");
       return;
     }
-    Alert.alert("Success", "Thank you for joining the waitlist!");
+    // Navigate to ZipCodeIntake with pre-filled email
+    const intent = isBusiness ? "consumer_and_business" : "consumer_only";
+    navigate("ZipCodeIntake", { intent, prefilledEmail: email });
     setEmail("");
   };
 

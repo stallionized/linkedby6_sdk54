@@ -19,6 +19,8 @@ import BusinessLandingPage from './BusinessLandingPage';
 import LoginScreen from './LoginScreen';
 import RegistrationScreen from './RegistrationScreen';
 import OTPVerificationScreen from './OTPVerificationScreen';
+import ZipCodeIntakeScreen from './ZipCodeIntakeScreen';
+import AccessCodeScreen from './AccessCodeScreen';
 import SearchScreen from './SearchScreen';
 import ConnectionsScreen from './ConnectionsScreen';
 import MessagesScreen from './MessagesScreen';
@@ -30,6 +32,8 @@ import BusinessAnalyticsScreen from './BusinessAnalyticsScreen';
 import BusinessDashboardScreen from './BusinessDashboardScreen';
 import BusinessConnectionsScreen from './BusinessConnectionsScreen';
 import BusinessMessagesScreen from './BusinessMessagesScreen';
+import AccessCodeManagementScreen from './AccessCodeManagementScreen';
+import WaitlistManagementScreen from './WaitlistManagementScreen';
 import Toast from 'react-native-toast-message';
 import ActivityTracker from './components/ActivityTracker';
 
@@ -100,8 +104,11 @@ function AppNavigator() {
       <Stack.Screen name="BusinessLanding" component={BusinessLandingPage} />
       <Stack.Screen name="InvestorADP" component={ADPPageNew} />
       <Stack.Screen name="LoginScreen" component={LoginScreen} />
+      <Stack.Screen name="Login" component={LoginScreen} />
       <Stack.Screen name="Registration" component={RegistrationScreen} />
       <Stack.Screen name="OTPVerification" component={OTPVerificationScreen} />
+      <Stack.Screen name="ZipCodeIntake" component={ZipCodeIntakeScreen} />
+      <Stack.Screen name="AccessCode" component={AccessCodeScreen} />
       <Stack.Screen name="Search" component={SearchScreen} />
       <Stack.Screen name="Connections" component={ConnectionsScreen} />
       <Stack.Screen name="Messages" component={MessagesScreen} />
@@ -149,6 +156,9 @@ function AppNavigator() {
           />
         )}
       </Stack.Screen>
+      {/* Admin screens */}
+      <Stack.Screen name="AccessCodeManagement" component={AccessCodeManagementScreen} />
+      <Stack.Screen name="WaitlistManagement" component={WaitlistManagementScreen} />
     </Stack.Navigator>
   );
 }

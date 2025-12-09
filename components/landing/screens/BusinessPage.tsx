@@ -18,8 +18,14 @@ import {
   businessTestimonialsData,
   businessFaqData,
 } from "../../../constants/landing/data";
+import { navigate } from "../../../navigationRef";
 
 const BusinessPage: React.FC = () => {
+  const handleListBusiness = () => {
+    // Navigate to ZIP code intake with business intent
+    navigate("ZipCodeIntake", { intent: "consumer_and_business" });
+  };
+
   return (
     <View className="flex-1 bg-bg-primary">
       <BusinessHero
@@ -27,6 +33,7 @@ const BusinessPage: React.FC = () => {
         subtitle="Unleash the Potential for Better Service & Pricing"
         ctaText="LIST YOUR BUSINESS"
         backgroundImage="/hero-business-bg.png"
+        onCtaClick={handleListBusiness}
       />
       <LogoTicker />
       <ConceptVideo />
@@ -58,7 +65,7 @@ const BusinessPage: React.FC = () => {
         subtitle="Common questions from service providers"
         items={businessFaqData}
       />
-      <CTA />
+      <CTA isBusiness={true} />
     </View>
   );
 };

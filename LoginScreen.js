@@ -19,10 +19,14 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from './Auth';
+import { checkUserBusinessStatus } from './utils/onboardingService';
 
 const { width: screenWidth } = Dimensions.get('window');
 
 const LoginScreen = ({ navigation, route }) => {
+  // Get intent from route params (for business signup flow)
+  const { intent = null } = route.params || {};
+
   const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -66,26 +70,63 @@ const LoginScreen = ({ navigation, route }) => {
       showAlert('Error', 'Please enter your email or phone number');
       return;
     }
-    
+
     if (!password.trim()) {
       showAlert('Error', 'Please enter your password');
       return;
     }
-    
+
     setIsSubmitting(true);
-    
+
     try {
       console.log('Login attempt:', { identifier, password });
-      
+
       const result = await signIn(identifier, password);
-      
+
       if (result.success) {
         console.log('Login successful, user:', result.user.email);
-        // Reset navigation stack and navigate to Search screen
-        navigation.reset({
-          index: 0,
-          routes: [{ name: 'Search' }],
-        });
+
+        // If intent is business, check business status and route accordingly
+        if (intent === 'business') {
+          try {
+            const businessStatus = await checkUserBusinessStatus(result.user.id);
+
+            if (businessStatus.hasBusiness) {
+              if (businessStatus.businessStatus === 'Active') {
+                // User has active business, go to business dashboard
+                navigation.reset({
+                  index: 0,
+                  routes: [{ name: 'BusinessDashboard' }],
+                });
+              } else {
+                // Business profile is incomplete, go to complete it
+                navigation.reset({
+                  index: 0,
+                  routes: [{ name: 'BusinessProfile' }],
+                });
+              }
+            } else {
+              // No business yet, go to business pricing to set one up
+              navigation.reset({
+                index: 0,
+                routes: [{ name: 'BusinessPricing' }],
+              });
+            }
+          } catch (businessCheckError) {
+            console.error('Error checking business status:', businessCheckError);
+            // Default to business pricing on error
+            navigation.reset({
+              index: 0,
+              routes: [{ name: 'BusinessPricing' }],
+            });
+          }
+        } else {
+          // Default consumer flow - go to Search screen
+          navigation.reset({
+            index: 0,
+            routes: [{ name: 'Search' }],
+          });
+        }
       } else {
         console.error('Login failed:', result.error);
         showAlert('Login Error', result.error || 'Login failed');
@@ -99,7 +140,13 @@ const LoginScreen = ({ navigation, route }) => {
   };
 
   const goToRegistration = () => {
-    navigation.navigate('Registration');
+    // For existing users coming from business landing, they should go to ZipCodeIntake
+    // For direct registration access, navigate normally
+    if (intent === 'business') {
+      navigation.navigate('ZipCodeIntake', { intent: 'consumer_and_business' });
+    } else {
+      navigation.navigate('ZipCodeIntake', { intent: 'consumer_only' });
+    }
   };
 
   const handleGoogleLogin = () => {

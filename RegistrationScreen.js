@@ -27,6 +27,14 @@ import { StatusBar } from 'expo-status-bar';
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 
 const RegistrationScreen = ({ navigation, route }) => {
+  // Get onboarding params from AccessCodeScreen
+  const {
+    accessCode = null,
+    accessCodeId = null,
+    intent = 'consumer',
+    email: prefilledEmail = null
+  } = route.params || {};
+
   // Refs for input focus management
   const phoneRef = useRef(null);
   const emailRef = useRef(null);
@@ -35,7 +43,7 @@ const RegistrationScreen = ({ navigation, route }) => {
 
   // State for user registration data
   const [phoneNumber, setPhoneNumber] = useState('');
-  const [email, setEmail] = useState('');
+  const [email, setEmail] = useState(prefilledEmail || '');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [fullName, setFullName] = useState('');
@@ -359,6 +367,10 @@ const RegistrationScreen = ({ navigation, route }) => {
               password: password,
               fullName: fullName.trim(),
               profileImageUrl: imageUrl,
+              // Pass onboarding params for post-verification routing
+              accessCode: accessCode,
+              accessCodeId: accessCodeId,
+              intent: intent,
             });
           }, 1000);
         }
@@ -410,7 +422,7 @@ const RegistrationScreen = ({ navigation, route }) => {
 
   // Function to go back to login screen
   const goToLogin = () => {
-    navigation.navigate('LoginScreen', { showEmailConfirmation: false });
+    navigation.navigate('LoginScreen', { showEmailConfirmation: false, intent: intent });
   };
 
   // Handle phone number formatting with proper cursor management

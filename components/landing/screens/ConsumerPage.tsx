@@ -16,6 +16,7 @@ import {
   consumerTestimonialsData,
   consumerFaqData,
 } from "../../../constants/landing/data";
+import { navigate } from "../../../navigationRef";
 
 // Hero title with styled "You Trust" in cyan
 const ConsumerHeroTitle = () => (
@@ -27,6 +28,11 @@ const ConsumerHeroTitle = () => (
 );
 
 const ConsumerPage: React.FC = () => {
+  const handleGetStarted = () => {
+    // Navigate to ZIP code intake with consumer intent
+    navigate("ZipCodeIntake", { intent: "consumer_only" });
+  };
+
   return (
     <View className="flex-1 bg-bg-primary">
       <Hero
@@ -35,6 +41,7 @@ const ConsumerPage: React.FC = () => {
         mobileSubtitle="Better Service & Pricing via Relationships"
         ctaText="GET STARTED"
         showPhoneInput={true}
+        onCtaClick={handleGetStarted}
       />
       <LogoTicker />
       <ConceptVideo />

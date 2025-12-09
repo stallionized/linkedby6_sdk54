@@ -4,6 +4,7 @@
     "slug": "linked-by-six",
     "version": "1.0.0",
     "orientation": "portrait",
+    "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "scheme": "linkedbysix",
     "web": {
@@ -17,15 +18,24 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.linkedbysix.app",
       "newArchEnabled": false,
+      "icon": {
+        "light": "./assets/icons/ios-light.png",
+        "dark": "./assets/icons/ios-dark.png",
+        "tinted": "./assets/icons/ios-tinted.png"
+      },
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
       "package": "com.linkedbysix.app",
-      "newArchEnabled": false,
+      "newArchEnabled": true,
       "softwareKeyboardLayoutMode": "resize",
-      "windowSoftInputMode": "adjustResize"
+      "windowSoftInputMode": "adjustResize",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/icons/adaptive-icon.png",
+        "backgroundColor": "#2196F3"
+      }
     },
     "plugins": [
       "expo-secure-store",

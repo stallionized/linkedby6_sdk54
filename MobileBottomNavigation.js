@@ -198,6 +198,17 @@ const MobileBottomNavigation = ({ navigation, activeRoute }) => {
       }
     ];
 
+    // Add briefcase icon for users without a business to navigate to business signup
+    if (!businessIdExists) {
+      baseTabs.push({
+        id: 'Business',
+        icon: 'briefcase-outline',
+        iconType: 'Ionicons',
+        route: 'BusinessLanding',
+        isBriefcase: true,
+      });
+    }
+
     return baseTabs;
   };
 

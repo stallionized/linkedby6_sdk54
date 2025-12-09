@@ -19,11 +19,22 @@ import { StatusBar } from 'expo-status-bar';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { supabase } from './supabaseClient';
 import Toast from 'react-native-toast-message';
+import { recordAccessCodeUsage, updateUserOnboardingInfo, markAccessCodeRequestUsed } from './utils/onboardingService';
 
 const { width: screenWidth } = Dimensions.get('window');
 
 const OTPVerificationScreen = ({ navigation, route }) => {
-  const { phoneNumber, email, password, fullName, profileImageUrl } = route.params || {};
+  const {
+    phoneNumber,
+    email,
+    password,
+    fullName,
+    profileImageUrl,
+    // Onboarding params
+    accessCode = null,
+    accessCodeId = null,
+    intent = 'consumer'
+  } = route.params || {};
 
   // OTP input refs
   const input1Ref = useRef(null);
@@ -205,6 +216,26 @@ const OTPVerificationScreen = ({ navigation, route }) => {
           }
         }
 
+        // Record access code usage if an access code was used
+        if (accessCodeId) {
+          try {
+            await recordAccessCodeUsage(accessCodeId, data.user.id);
+            console.log('Access code usage recorded');
+          } catch (accessCodeError) {
+            console.error('Error recording access code usage:', accessCodeError);
+          }
+        }
+
+        // Mark access code request as used if email was provided
+        if (email) {
+          try {
+            await markAccessCodeRequestUsed(email, data.user.id);
+            console.log('Access code request marked as used');
+          } catch (requestError) {
+            console.error('Error marking access code request:', requestError);
+          }
+        }
+
         Toast.show({
           type: 'success',
           text1: 'Verification Successful!',
@@ -213,12 +244,21 @@ const OTPVerificationScreen = ({ navigation, route }) => {
           visibilityTime: 2000,
         });
 
-        // Navigate to the main app
+        // Navigate based on intent
         setTimeout(() => {
-          navigation.reset({
-            index: 0,
-            routes: [{ name: 'Search' }],
-          });
+          if (intent === 'business') {
+            // Business intent - go to business pricing/setup flow
+            navigation.reset({
+              index: 0,
+              routes: [{ name: 'BusinessPricing' }],
+            });
+          } else {
+            // Consumer intent (default) - go to main search screen
+            navigation.reset({
+              index: 0,
+              routes: [{ name: 'Search' }],
+            });
+          }
         }, 1500);
       }
     } catch (error) {

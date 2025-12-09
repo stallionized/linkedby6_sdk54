@@ -11,7 +11,8 @@ import {
   KeyboardAvoidingView,
   Platform,
   Image,
-  Dimensions
+  Dimensions,
+  Switch
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
@@ -52,6 +53,9 @@ const getInitialSettings = () => ({
   admin_neo4j_password: '',
   admin_aura_instance_id: '',
   admin_aura_instance_name: '',
+  // Onboarding controls
+  access_code_required: true,
+  geographic_restriction_enabled: true,
 });
 
 const SettingsScreen = ({ navigation }) => {
@@ -86,6 +90,8 @@ const SettingsScreen = ({ navigation }) => {
       'admin_neo4j_password',
       'admin_aura_instance_id',
       'admin_aura_instance_name',
+      'access_code_required',
+      'geographic_restriction_enabled',
     ];
 
     try {
@@ -104,6 +110,10 @@ const SettingsScreen = ({ navigation }) => {
         data.forEach(item => {
           if (item.key === 'ms2_webhook_url') {
             newSettings.ms2WebHook = item.value || '';
+          } else if (item.key === 'access_code_required') {
+            newSettings.access_code_required = item.value === 'true';
+          } else if (item.key === 'geographic_restriction_enabled') {
+            newSettings.geographic_restriction_enabled = item.value === 'true';
           } else {
             newSettings[item.key] = item.value || '';
           }
@@ -322,6 +332,9 @@ const SettingsScreen = ({ navigation }) => {
         { key: 'admin_neo4j_password', value: settings.admin_neo4j_password },
         { key: 'admin_aura_instance_id', value: settings.admin_aura_instance_id },
         { key: 'admin_aura_instance_name', value: settings.admin_aura_instance_name },
+        // Onboarding controls
+        { key: 'access_code_required', value: settings.access_code_required ? 'true' : 'false' },
+        { key: 'geographic_restriction_enabled', value: settings.geographic_restriction_enabled ? 'true' : 'false' },
       ];
 
       for (const setting of adminSettingsToSave) {
@@ -649,13 +662,76 @@ const SettingsScreen = ({ navigation }) => {
 
           {/* Admin Settings Section */}
           {isAdmin ? (
+            <>
+            {/* Onboarding Controls Section */}
+            <View style={styles.section}>
+              <View style={styles.sectionHeader}>
+                <Ionicons name="key-outline" size={24} color={colors.warning} />
+                <Text style={[styles.sectionTitle, { color: colors.warning }]}>Onboarding Controls</Text>
+              </View>
+              <Text style={styles.sectionSubtitle}>Control new user registration requirements</Text>
+
+              {/* Access Code Required Toggle */}
+              <View style={styles.toggleRow}>
+                <View style={styles.toggleInfo}>
+                  <Text style={styles.toggleLabel}>Require Access Code</Text>
+                  <Text style={styles.toggleHelper}>
+                    New users must enter a valid access code to register
+                  </Text>
+                </View>
+                <Switch
+                  value={settings.access_code_required}
+                  onValueChange={(value) => setSettings(prev => ({ ...prev, access_code_required: value }))}
+                  trackColor={{ false: '#767577', true: colors.success }}
+                  thumbColor={settings.access_code_required ? colors.cardWhite : '#f4f3f4'}
+                />
+              </View>
+
+              {/* Geographic Restriction Toggle */}
+              <View style={styles.toggleRow}>
+                <View style={styles.toggleInfo}>
+                  <Text style={styles.toggleLabel}>Geographic Restriction</Text>
+                  <Text style={styles.toggleHelper}>
+                    Only allow registrations from NJ/NY ZIP codes
+                  </Text>
+                </View>
+                <Switch
+                  value={settings.geographic_restriction_enabled}
+                  onValueChange={(value) => setSettings(prev => ({ ...prev, geographic_restriction_enabled: value }))}
+                  trackColor={{ false: '#767577', true: colors.success }}
+                  thumbColor={settings.geographic_restriction_enabled ? colors.cardWhite : '#f4f3f4'}
+                />
+              </View>
+
+              {/* Management Links */}
+              <View style={styles.managementLinks}>
+                <TouchableOpacity
+                  style={styles.managementLink}
+                  onPress={() => navigation.navigate('AccessCodeManagement')}
+                >
+                  <Ionicons name="key" size={20} color={colors.primaryBlue} />
+                  <Text style={styles.managementLinkText}>Manage Access Codes</Text>
+                  <Ionicons name="chevron-forward" size={20} color={colors.textLight} />
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.managementLink}
+                  onPress={() => navigation.navigate('WaitlistManagement')}
+                >
+                  <Ionicons name="time" size={20} color={colors.primaryBlue} />
+                  <Text style={styles.managementLinkText}>View Waitlist</Text>
+                  <Ionicons name="chevron-forward" size={20} color={colors.textLight} />
+                </TouchableOpacity>
+              </View>
+            </View>
+
             <View style={styles.section}>
               <View style={styles.sectionHeader}>
                 <Ionicons name="settings-outline" size={24} color={colors.success} />
                 <Text style={[styles.sectionTitle, { color: colors.success }]}>Admin Settings</Text>
               </View>
               <Text style={styles.sectionSubtitle}>Configure system-wide settings</Text>
-              
+
               {/* MS2 Webhook URL */}
               <View style={styles.inputGroup}>
                 <Text style={styles.label}>MS2 Webhook URL</Text>
@@ -771,6 +847,7 @@ const SettingsScreen = ({ navigation }) => {
                 )}
               </TouchableOpacity>
             </View>
+            </>
           ) : (
             /* Non-Admin Info */
             <View style={styles.section}>
@@ -1060,6 +1137,50 @@ const styles = StyleSheet.create({
     backgroundColor: colors.error,
     width: '100%',
     marginTop: 8,
+  },
+  // Toggle row styles for onboarding controls
+  toggleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.borderLight,
+  },
+  toggleInfo: {
+    flex: 1,
+    marginRight: 16,
+  },
+  toggleLabel: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: colors.textDark,
+    marginBottom: 4,
+  },
+  toggleHelper: {
+    fontSize: 13,
+    color: colors.textMedium,
+    lineHeight: 18,
+  },
+  // Management links styles
+  managementLinks: {
+    marginTop: 20,
+  },
+  managementLink: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 14,
+    paddingHorizontal: 12,
+    backgroundColor: colors.backgroundGray,
+    borderRadius: 12,
+    marginBottom: 10,
+  },
+  managementLinkText: {
+    flex: 1,
+    fontSize: 16,
+    fontWeight: '500',
+    color: colors.textDark,
+    marginLeft: 12,
   },
 });
 
