@@ -18,6 +18,7 @@ interface EnrichmentRequest {
     city: string;
     state: string;
     zip_code?: string;
+    location_type?: 'storefront' | 'office' | 'not_brick_mortar';
     coverage_type?: string;
     coverage_radius?: number;
     service_areas?: string[];
@@ -300,6 +301,29 @@ serve(async (req) => {
           },
         }
       );
+    }
+
+    // Auto-populate coverage for brick-and-mortar businesses without explicit coverage
+    const isBrickAndMortar = business_data.location_type === 'storefront' ||
+                             business_data.location_type === 'office';
+    const hasCoverage = business_data.coverage_type && business_data.coverage_type.trim() !== '';
+
+    if (isBrickAndMortar && !hasCoverage) {
+      console.log("Auto-populating coverage from physical address for brick-and-mortar business");
+      business_data.coverage_type = 'local';
+      business_data.service_areas = business_data.service_areas || [];
+      business_data.service_areas.push(`${business_data.city}, ${business_data.state}`);
+
+      // Update business_profiles table with inferred coverage
+      if (business_id) {
+        await supabase
+          .from("business_profiles")
+          .update({
+            coverage_type: 'local',
+            coverage_details: `${business_data.city}, ${business_data.state}`
+          })
+          .eq("business_id", business_id);
+      }
     }
 
     console.log("Generating semantic variations...");

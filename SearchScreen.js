@@ -1119,12 +1119,12 @@ const SearchScreen = ({ navigation, route, isBusinessMode, onBusinessModeToggle 
         </ScrollView>
         
         {/* Chat input container */}
-        <View 
+        <View
           style={[
             styles.chatInputWrapper,
             {
               position: 'absolute',
-              bottom: keyboardHeight > 0 ? keyboardHeight : insets.bottom,
+              bottom: keyboardHeight > 0 ? keyboardHeight : 0,
               left: 0,
               right: 0,
             }
@@ -1621,12 +1621,12 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: -2 },
     shadowOpacity: 0.1,
     shadowRadius: 4,
-    paddingBottom: 8, // Add extra padding at bottom
   },
   chatInputContainer: {
     flexDirection: 'row',
     alignItems: 'flex-end',
-    padding: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
     backgroundColor: colors.cardWhite,
   },
   chatTextInput: {
@@ -1636,10 +1636,11 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     paddingHorizontal: 16,
     marginRight: 12,
-    maxHeight: 120,
+    minHeight: 44,
+    maxHeight: 100,
     fontSize: 15,
     color: colors.textDark,
-    textAlignVertical: 'top',
+    textAlignVertical: 'center',
   },
   sendButton: {
     backgroundColor: colors.primaryBlue,

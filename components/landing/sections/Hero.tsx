@@ -382,8 +382,8 @@ const Hero: React.FC<HeroProps> = ({
             <ScrollReveal direction="up" delay={400} distance={30} animateOnMount>
               <View
                 style={{
-                  width: "95%",
-                  maxWidth: scale(350, width),
+                  width: width * 0.9,
+                  alignSelf: "center",
                 }}
               >
                 <View
@@ -401,6 +401,7 @@ const Hero: React.FC<HeroProps> = ({
                     placeholder="Describe the service you need..."
                     placeholderTextColor="#6B7280"
                     multiline
+                    numberOfLines={4}
                     scrollEnabled={true}
                     style={{
                       color: "#FFFFFF",
@@ -409,6 +410,7 @@ const Hero: React.FC<HeroProps> = ({
                       fontFamily: "Inter_400Regular",
                       textAlignVertical: "top",
                       height: scale(80, width),
+                      minHeight: scale(80, width),
                       maxHeight: scale(80, width),
                     }}
                   />
