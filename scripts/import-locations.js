@@ -1,23 +1,14 @@
 /**
- * Script to import US location data from CSV files into Supabase
+ * Script to import US location data from CSV files
+ * Generates SQL files for import via Supabase migrations
  * Run with: node scripts/import-locations.js
  */
 
 const fs = require('fs');
 const path = require('path');
-const { createClient } = require('@supabase/supabase-js');
 
-// Supabase connection
-const SUPABASE_URL = 'https://oofugvbdkyqtidzuaelp.supabase.co';
-const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-if (!SUPABASE_SERVICE_KEY) {
-  console.error('Error: SUPABASE_SERVICE_ROLE_KEY environment variable is required');
-  console.error('Set it with: set SUPABASE_SERVICE_ROLE_KEY=your_key');
-  process.exit(1);
-}
-
-const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
+// Include all 50 US states + DC and territories
+const TARGET_STATES = null; // null means include all states (no filtering)
 
 // CSV file paths
 const CSV_FILES = [
@@ -104,59 +95,37 @@ function parseCSVFile(filePath) {
 }
 
 /**
- * Insert locations in batches
+ * Escape single quotes for SQL
  */
-async function insertLocations(locations) {
-  const BATCH_SIZE = 500;
-  let inserted = 0;
-  let errors = 0;
+function escapeSql(str) {
+  if (!str) return '';
+  return str.replace(/'/g, "''");
+}
 
-  for (let i = 0; i < locations.length; i += BATCH_SIZE) {
-    const batch = locations.slice(i, i + BATCH_SIZE);
+/**
+ * Generate SQL insert statements in batches
+ */
+function generateSqlBatches(locations, batchSize = 50) {
+  const batches = [];
 
-    const { error } = await supabase
-      .from('us_locations')
-      .insert(batch);
+  for (let i = 0; i < locations.length; i += batchSize) {
+    const batch = locations.slice(i, i + batchSize);
+    const values = batch.map(loc =>
+      `('${escapeSql(loc.zip_code)}','${escapeSql(loc.locale_name)}','${escapeSql(loc.city)}','${escapeSql(loc.state)}','${escapeSql(loc.area_name)}','${escapeSql(loc.district_name)}')`
+    ).join(',\n');
 
-    if (error) {
-      console.error(`Error inserting batch at ${i}:`, error.message);
-      errors += batch.length;
-    } else {
-      inserted += batch.length;
-    }
-
-    // Progress update
-    if ((i + BATCH_SIZE) % 5000 === 0 || i + BATCH_SIZE >= locations.length) {
-      console.log(`Progress: ${Math.min(i + BATCH_SIZE, locations.length)}/${locations.length} rows`);
-    }
+    batches.push(`INSERT INTO us_locations (zip_code, locale_name, city, state, area_name, district_name) VALUES\n${values};`);
   }
 
-  return { inserted, errors };
+  return batches;
 }
 
 /**
  * Main function
  */
-async function main() {
-  console.log('Starting location data import...\n');
-
-  // Check if table already has data
-  const { count } = await supabase
-    .from('us_locations')
-    .select('*', { count: 'exact', head: true });
-
-  if (count > 0) {
-    console.log(`Table already has ${count} rows. Clearing existing data...`);
-    const { error } = await supabase
-      .from('us_locations')
-      .delete()
-      .neq('id', 0); // Delete all rows
-
-    if (error) {
-      console.error('Error clearing table:', error.message);
-      process.exit(1);
-    }
-  }
+function main() {
+  console.log('Starting location data processing...\n');
+  console.log(`Filtering for states: ${TARGET_STATES ? TARGET_STATES.join(', ') : 'ALL STATES'}\n`);
 
   // Parse all CSV files
   let allLocations = [];
@@ -168,16 +137,20 @@ async function main() {
     }
 
     const locations = parseCSVFile(filePath);
-    console.log(`  Parsed ${locations.length} locations\n`);
-    allLocations = allLocations.concat(locations);
+    // Filter for target states (if specified) or include all
+    const filtered = TARGET_STATES
+      ? locations.filter(loc => TARGET_STATES.includes(loc.state))
+      : locations;
+    console.log(`  Total: ${locations.length}, After filter: ${filtered.length}\n`);
+    allLocations = allLocations.concat(filtered);
   }
 
-  console.log(`Total locations to import: ${allLocations.length}\n`);
+  console.log(`Total locations: ${allLocations.length}\n`);
 
-  // Remove duplicates based on zip_code + city + state
+  // Remove duplicates based on zip_code + locale_name + city + state
   const seen = new Set();
   const uniqueLocations = allLocations.filter(loc => {
-    const key = `${loc.zip_code}-${loc.city}-${loc.state}`;
+    const key = `${loc.zip_code}-${loc.locale_name}-${loc.city}-${loc.state}`;
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
@@ -185,13 +158,33 @@ async function main() {
 
   console.log(`Unique locations after deduplication: ${uniqueLocations.length}\n`);
 
-  // Insert into database
-  console.log('Inserting into database...');
-  const { inserted, errors } = await insertLocations(uniqueLocations);
+  // Count by state
+  const stateCounts = {};
+  uniqueLocations.forEach(loc => {
+    stateCounts[loc.state] = (stateCounts[loc.state] || 0) + 1;
+  });
+  console.log('Counts by state:');
+  Object.entries(stateCounts).forEach(([state, count]) => {
+    console.log(`  ${state}: ${count}`);
+  });
 
-  console.log(`\nImport complete!`);
-  console.log(`  Inserted: ${inserted}`);
-  console.log(`  Errors: ${errors}`);
+  // Generate SQL batches
+  const batches = generateSqlBatches(uniqueLocations, 50);
+  console.log(`\nGenerated ${batches.length} SQL batches\n`);
+
+  // Write batches to files
+  const outputDir = path.join(__dirname, '../assets/location_batches');
+  if (!fs.existsSync(outputDir)) {
+    fs.mkdirSync(outputDir, { recursive: true });
+  }
+
+  batches.forEach((sql, idx) => {
+    const filename = path.join(outputDir, `batch_${idx.toString().padStart(3, '0')}.sql`);
+    fs.writeFileSync(filename, sql);
+  });
+
+  console.log(`SQL batches written to: ${outputDir}`);
+  console.log(`\nTo import, use Supabase apply_migration for each batch file.`);
 }
 
-main().catch(console.error);
+main();

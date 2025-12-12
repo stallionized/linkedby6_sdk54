@@ -3,7 +3,6 @@ import {
   View,
   Text,
   StyleSheet,
-  Animated,
   TouchableOpacity,
   ScrollView,
   Image,
@@ -13,8 +12,9 @@ import {
   TextInput,
   Dimensions,
   Alert,
-  PanResponder
 } from 'react-native';
+import Animated from 'react-native-reanimated';
+import { GestureDetector } from 'react-native-gesture-handler';
 import { supabase } from './supabaseClient';
 import { Ionicons } from '@expo/vector-icons';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
@@ -35,6 +35,9 @@ import WebBrowserSlider from './components/WebBrowserSlider';
 
 // Import logo component
 import BusinessLogoInitials from './components/BusinessLogoInitials';
+
+// Import slider gesture hook
+import { useSliderGesture } from './hooks/useSliderGesture';
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 
@@ -136,38 +139,19 @@ const extractDominantColor = async (business) => {
 };
 
 const BusinessProfileSlider = ({ isVisible, onClose, businessId, userId, viewSource = 'other', navigation }) => {
-  const slideAnim = useRef(new Animated.Value(SLIDER_WIDTH)).current;
-  const fadeAnim = useRef(new Animated.Value(0)).current;
-  const pan = useRef(new Animated.ValueXY()).current;
-  
   // Use navigation hook to ensure navigation works from any screen
   const navigationHook = useNavigation();
-  
+
   // Get authenticated user
   const { user } = useAuth();
 
-  const panResponder = useRef(
-    PanResponder.create({
-      onMoveShouldSetPanResponder: (evt, gestureState) => {
-        return Math.abs(gestureState.dx) > Math.abs(gestureState.dy) && Math.abs(gestureState.dx) > 10;
-      },
-      onPanResponderMove: (evt, gestureState) => {
-        if (gestureState.dx > 0) {
-          pan.setValue({ x: gestureState.dx, y: 0 });
-        }
-      },
-      onPanResponderRelease: (evt, gestureState) => {
-        if (gestureState.dx > SLIDER_WIDTH * 0.4 || gestureState.vx > 0.5) {
-          onClose();
-        } else {
-          Animated.spring(pan, {
-            toValue: { x: 0, y: 0 },
-            useNativeDriver: false,
-          }).start();
-        }
-      },
-    })
-  ).current;
+  // Use the reusable slider gesture hook for smooth, natural swipe-to-close
+  const { animatedStyle, panGesture } = useSliderGesture({
+    isVisible,
+    onClose,
+    sliderWidth: SLIDER_WIDTH,
+    direction: 'right',
+  });
   
   const [loading, setLoading] = useState(true);
   const [profileData, setProfileData] = useState(null);
@@ -786,43 +770,14 @@ const BusinessProfileSlider = ({ isVisible, onClose, businessId, userId, viewSou
     }
   }, [businessId, userId, isVisible]);
 
-  // Animate the slider in and out
+  // Reset state when slider becomes visible
   useEffect(() => {
     if (isVisible) {
-      pan.setValue({ x: 0, y: 0 }); // Reset pan position when opening
-      Animated.parallel([
-        Animated.spring(slideAnim, {
-          toValue: 0,
-          tension: 50,
-          friction: 7,
-          useNativeDriver: false,
-        }),
-        Animated.timing(fadeAnim, {
-          toValue: 0.5,
-          duration: 300,
-          useNativeDriver: false,
-        })
-      ]).start();
-      
       setReviewMode(false);
       setEmailMode(false);
       setEmailStatus('');
-    } else {
-      Animated.parallel([
-        Animated.spring(slideAnim, {
-          toValue: SLIDER_WIDTH,
-          tension: 50,
-          friction: 7,
-          useNativeDriver: false,
-        }),
-        Animated.timing(fadeAnim, {
-          toValue: 0,
-          duration: 300,
-          useNativeDriver: false,
-        })
-      ]).start();
     }
-  }, [isVisible, slideAnim, fadeAnim]);
+  }, [isVisible]);
   
   // Extract dominant color from logo image when profileData changes
   useEffect(() => {
@@ -1730,18 +1685,20 @@ const BusinessProfileSlider = ({ isVisible, onClose, businessId, userId, viewSou
     </ScrollView>
   );
 
+  if (!isVisible) return null;
+
   return (
-    <View style={styles.container}> 
-      <Animated.View 
-        style={[
-          styles.slider, 
-          { 
-            transform: [{ translateX: Animated.add(slideAnim, pan.x) }],
-            width: SLIDER_WIDTH,
-          }
-        ]}
-        {...panResponder.panHandlers}
-      >
+    <View style={styles.container}>
+      <GestureDetector gesture={panGesture}>
+        <Animated.View
+          style={[
+            styles.slider,
+            {
+              width: SLIDER_WIDTH,
+            },
+            animatedStyle,
+          ]}
+        >
         <View style={styles.header}>
           <Text style={styles.headerText}>
             {emailMode ? `Email ${profileData?.businessName || 'Business'}` : reviewMode ? 'Leave a Review' : 'Business Profile'}
@@ -2041,7 +1998,8 @@ const BusinessProfileSlider = ({ isVisible, onClose, businessId, userId, viewSou
             businessName={profileData?.businessName}
           />
         )}
-      </Animated.View>
+        </Animated.View>
+      </GestureDetector>
     </View>
   );
 };

@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "Linked By Six",
+    "name": "LinkedBySix",
     "slug": "linked-by-six",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -24,7 +24,10 @@
         "tinted": "./assets/icons/ios-tinted.png"
       },
       "infoPlist": {
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+        "UIBackgroundModes": ["fetch"],
+        "NSContactsUsageDescription": "LinkedBySix needs access to your contacts to help you connect with people you know.",
+        "NSLocationWhenInUseUsageDescription": "LinkedBySix uses your location to find businesses and services near you."
       }
     },
     "android": {
@@ -32,10 +35,17 @@
       "newArchEnabled": true,
       "softwareKeyboardLayoutMode": "resize",
       "windowSoftInputMode": "adjustResize",
+      "icon": "./assets/icon.png",
       "adaptiveIcon": {
         "foregroundImage": "./assets/icons/adaptive-icon.png",
-        "backgroundColor": "#2196F3"
-      }
+        "backgroundColor": "#0A66C2"
+      },
+      "permissions": [
+        "READ_CONTACTS",
+        "RECEIVE_BOOT_COMPLETED",
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION"
+      ]
     },
     "plugins": [
       "expo-secure-store",
@@ -46,7 +56,15 @@
           "enableGooglePay": true
         }
       ],
-      "expo-font"
+      "expo-font",
+      "expo-background-fetch",
+      "expo-task-manager",
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "LinkedBySix uses your location to find businesses and services near you."
+        }
+      ]
     ],
     "extra": {
       "stripeServerUrl": "https://stripeserver-2w6d.onrender.com",

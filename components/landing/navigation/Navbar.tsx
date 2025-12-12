@@ -16,9 +16,13 @@ import Animated, {
   useAnimatedStyle,
   interpolate,
   useDerivedValue,
-  withTiming,
-  Easing,
+  withSpring,
+  runOnJS,
 } from "react-native-reanimated";
+import {
+  Gesture,
+  GestureDetector,
+} from "react-native-gesture-handler";
 import { useScrollContext } from "../../../contexts/landing/ScrollContext";
 import { navigate } from "../../../navigationRef";
 
@@ -26,21 +30,44 @@ interface NavbarProps {
   isBusiness: boolean;
   togglePage: () => void;
   scrollY?: Animated.SharedValue<number>;
+  // External menu control for swipe gestures
+  isMenuOpen?: boolean;
+  onMenuOpenChange?: (isOpen: boolean) => void;
+  menuTranslateX?: Animated.SharedValue<number>;
 }
 
 const NAVBAR_HEIGHT = 72; // Approximate height of navbar content
+const SWIPE_THRESHOLD = 50; // Minimum swipe distance to trigger menu
+const SWIPE_VELOCITY_THRESHOLD = 500; // Velocity threshold for quick swipes
 
-const Navbar: React.FC<NavbarProps> = ({ isBusiness, togglePage, scrollY }) => {
+const Navbar: React.FC<NavbarProps> = ({
+  isBusiness,
+  togglePage,
+  scrollY,
+  isMenuOpen: externalIsMenuOpen,
+  onMenuOpenChange,
+  menuTranslateX: externalMenuTranslateX,
+}) => {
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
-  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [internalIsMenuOpen, setInternalIsMenuOpen] = useState(false);
   const fallbackScrollY = useSharedValue(0);
   const scrollContext = useScrollContext();
 
+  // Use external state if provided, otherwise use internal state
+  const isMobileMenuOpen = externalIsMenuOpen !== undefined ? externalIsMenuOpen : internalIsMenuOpen;
+  const setIsMobileMenuOpen = onMenuOpenChange || setInternalIsMenuOpen;
+
   // Shared value for menu slide animation
-  const menuTranslateX = useSharedValue(width);
+  const internalMenuTranslateX = useSharedValue(width);
+  const menuTranslateX = externalMenuTranslateX || internalMenuTranslateX;
 
   const isMobile = width < 768;
+  const isNative = Platform.OS === "ios" || Platform.OS === "android";
+
+  // Helper functions to update state from worklet
+  const openMenu = () => setIsMobileMenuOpen(true);
+  const closeMenu = () => setIsMobileMenuOpen(false);
 
   // Use the passed scrollY, then context, then fallback to 0
   const currentScrollY = scrollY ?? scrollContext?.scrollY ?? fallbackScrollY;
@@ -94,13 +121,17 @@ const Navbar: React.FC<NavbarProps> = ({ isBusiness, togglePage, scrollY }) => {
     transform: [{ translateX: menuTranslateX.value }],
   }));
 
-  // Animate menu when state changes
+  // Animate menu when state changes (only for internal state without external control)
+  // When external control is used, the parent handles the animation
   useEffect(() => {
-    menuTranslateX.value = withTiming(isMobileMenuOpen ? 0 : width, {
-      duration: 300,
-      easing: Easing.inOut(Easing.ease),
-    });
-  }, [isMobileMenuOpen, width]);
+    if (externalMenuTranslateX === undefined) {
+      menuTranslateX.value = withSpring(isMobileMenuOpen ? 0 : width, {
+        damping: 20,
+        stiffness: 200,
+        mass: 0.5,
+      });
+    }
+  }, [isMobileMenuOpen, width, externalMenuTranslateX]);
 
   // Handle Android back button
   useEffect(() => {
@@ -115,6 +146,40 @@ const Navbar: React.FC<NavbarProps> = ({ isBusiness, togglePage, scrollY }) => {
     });
     return () => backHandler.remove();
   }, [isMobileMenuOpen]);
+
+  // Swipe gesture to close menu (swipe right when menu is open)
+  const swipeToCloseGesture = Gesture.Pan()
+    .activeOffsetX([-20, 20])
+    .onUpdate((event) => {
+      // Only allow closing when menu is open and swiping right
+      if (isMobileMenuOpen && event.translationX > 0) {
+        menuTranslateX.value = Math.min(width, event.translationX);
+      }
+    })
+    .onEnd((event) => {
+      if (isMobileMenuOpen) {
+        // Check if swipe was far enough or fast enough to close
+        const shouldClose =
+          event.translationX > SWIPE_THRESHOLD ||
+          event.velocityX > SWIPE_VELOCITY_THRESHOLD;
+
+        if (shouldClose) {
+          menuTranslateX.value = withSpring(width, {
+            damping: 20,
+            stiffness: 200,
+            mass: 0.5,
+          });
+          runOnJS(closeMenu)();
+        } else {
+          // Snap back to open
+          menuTranslateX.value = withSpring(0, {
+            damping: 20,
+            stiffness: 200,
+            mass: 0.5,
+          });
+        }
+      }
+    });
 
   return (
     <>
@@ -253,90 +318,96 @@ const Navbar: React.FC<NavbarProps> = ({ isBusiness, togglePage, scrollY }) => {
       {/* Mobile Menu Overlay - slides BEHIND navbar (zIndex: 40 < navbar's 50) */}
       {/* The menu extends to the top and provides the background that shows through the transparent navbar */}
       {isMobile && (
-        <Animated.View
-          style={[
-            {
-              position: "absolute",
-              top: 0,
-              left: 0,
-              right: 0,
-              bottom: 0,
-              zIndex: 40,
-              backgroundColor: "#020408",
-            },
-            animatedMenuStyle,
-          ]}
-          pointerEvents={isMobileMenuOpen ? "auto" : "none"}
-        >
-          {/* Content container with proper padding to start below navbar */}
-          <View
-            style={{
-              flex: 1,
-              paddingTop: insets.top + NAVBAR_HEIGHT + 16,
-              paddingHorizontal: 24,
-            }}
+        <GestureDetector gesture={isNative ? swipeToCloseGesture : Gesture.Pan()}>
+          <Animated.View
+            style={[
+              {
+                position: "absolute",
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                zIndex: 40,
+                backgroundColor: "#020408",
+              },
+              animatedMenuStyle,
+            ]}
+            pointerEvents={isMobileMenuOpen ? "auto" : "none"}
           >
-            <View style={{ gap: 32 }}>
-              <Pressable
-                onPress={handleTogglePage}
-                style={{
-                  borderBottomWidth: 1,
-                  borderBottomColor: "rgba(255,255,255,0.1)",
-                  paddingBottom: 16,
-                }}
-              >
-                <Text
+            {/* Content container with proper padding to start below navbar */}
+            <View
+              style={{
+                flex: 1,
+                paddingTop: insets.top + NAVBAR_HEIGHT + 16,
+                paddingHorizontal: 24,
+              }}
+            >
+              <View style={{ gap: 32 }}>
+                <Pressable
+                  onPress={handleTogglePage}
                   style={{
-                    fontFamily: "Rajdhani_700Bold",
-                    fontSize: 20,
-                    color: "#60A5FA",
+                    borderBottomWidth: 1,
+                    borderBottomColor: "rgba(255,255,255,0.1)",
+                    paddingBottom: 16,
                   }}
                 >
-                  {isBusiness ? "Switch to Consumer" : "Switch to Business"}
-                </Text>
-              </Pressable>
-
-              <View style={{ marginTop: 32 }}>
-                <Pressable style={{ width: "100%" }} onPress={handleLogin}>
-                  <LinearGradient
-                    colors={["#007AFF", "#00C2FF"]}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 0 }}
+                  <Text
                     style={{
-                      paddingVertical: 16,
-                      borderRadius: 8,
-                      alignItems: "center",
-                      ...(Platform.OS === "web"
-                        ? { boxShadow: "0 10px 15px -3px rgba(0, 0, 0, 0.1)" }
-                        : {
-                            shadowColor: "#000",
-                            shadowOffset: { width: 0, height: 10 },
-                            shadowOpacity: 0.1,
-                            shadowRadius: 15,
-                            elevation: 5,
-                          }),
+                      fontFamily: "Rajdhani_700Bold",
+                      fontSize: 20,
+                      color: "#60A5FA",
                     }}
                   >
-                    <Text
+                    {isBusiness ? "Switch to Consumer" : "Switch to Business"}
+                  </Text>
+                </Pressable>
+
+                <View style={{ marginTop: 32 }}>
+                  <Pressable style={{ width: "100%" }} onPress={handleLogin}>
+                    <LinearGradient
+                      colors={["#007AFF", "#00C2FF"]}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 0 }}
                       style={{
-                        fontFamily: "Inter_700Bold",
-                        fontSize: 14,
-                        color: "#FFFFFF",
-                        textTransform: "uppercase",
-                        letterSpacing: 3,
+                        paddingVertical: 16,
+                        borderRadius: 8,
+                        alignItems: "center",
+                        ...(Platform.OS === "web"
+                          ? { boxShadow: "0 10px 15px -3px rgba(0, 0, 0, 0.1)" }
+                          : {
+                              shadowColor: "#000",
+                              shadowOffset: { width: 0, height: 10 },
+                              shadowOpacity: 0.1,
+                              shadowRadius: 15,
+                              elevation: 5,
+                            }),
                       }}
                     >
-                      LOG IN
-                    </Text>
-                  </LinearGradient>
-                </Pressable>
+                      <Text
+                        style={{
+                          fontFamily: "Inter_700Bold",
+                          fontSize: 14,
+                          color: "#FFFFFF",
+                          textTransform: "uppercase",
+                          letterSpacing: 3,
+                        }}
+                      >
+                        LOG IN
+                      </Text>
+                    </LinearGradient>
+                  </Pressable>
+                </View>
               </View>
             </View>
-          </View>
-        </Animated.View>
+          </Animated.View>
+        </GestureDetector>
       )}
+
     </>
   );
 };
+
+// Export constants for parent component
+export { NAVBAR_HEIGHT, SWIPE_THRESHOLD, SWIPE_VELOCITY_THRESHOLD };
 
 export default Navbar;

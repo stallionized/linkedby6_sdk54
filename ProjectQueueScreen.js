@@ -465,6 +465,7 @@ const ProjectQueueScreen = ({ navigation }) => {
             business_name,
             industry,
             image_url,
+            logo_dominant_color,
             description,
             city,
             state,
@@ -516,6 +517,7 @@ const ProjectQueueScreen = ({ navigation }) => {
           business_name: item.business_profiles.business_name || 'Unnamed Business',
           industry: item.business_profiles.industry || 'Unknown Industry',
           image_url: item.business_profiles.image_url,
+          logo_dominant_color: item.business_profiles.logo_dominant_color,
           description: item.business_profiles.description || '',
           city: item.business_profiles.city,
           state: item.business_profiles.state,
@@ -719,8 +721,8 @@ const ProjectQueueScreen = ({ navigation }) => {
 
   if (isLoading) {
     return (
-      <SafeAreaView style={styles.container}>
-        <StatusBar style="light" />
+      <SafeAreaView style={styles.container} edges={['top']}>
+        <StatusBar style="dark" />
         <MobileHeader navigation={navigation} title="My Queue" />
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color={colors.primaryBlue} />
@@ -732,9 +734,9 @@ const ProjectQueueScreen = ({ navigation }) => {
   }
 
   return (
-    <SafeAreaView style={styles.container}>
-      <StatusBar style="light" />
-      
+    <SafeAreaView style={styles.container} edges={['top']}>
+      <StatusBar style="dark" />
+
       {/* Header */}
       <MobileHeader
         navigation={navigation}
@@ -873,7 +875,7 @@ const ProjectQueueScreen = ({ navigation }) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.backgroundGray,
+    backgroundColor: '#fff',
   },
   content: {
     flex: 1,

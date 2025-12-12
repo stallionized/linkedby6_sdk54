@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useCallback } from "react";
 import { View, useWindowDimensions, ActivityIndicator, Text, StatusBar, Platform } from "react-native";
 import { useFonts } from "expo-font";
 import {
@@ -18,11 +18,13 @@ import {
 import Animated, {
   useSharedValue,
   useAnimatedScrollHandler,
+  withSpring,
+  runOnJS,
 } from "react-native-reanimated";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { Gesture, GestureDetector } from "react-native-gesture-handler";
 
 // Import landing page components
-import Navbar from "./components/landing/navigation/Navbar";
+import Navbar, { SWIPE_THRESHOLD, SWIPE_VELOCITY_THRESHOLD } from "./components/landing/navigation/Navbar";
 import Footer from "./components/landing/navigation/Footer";
 import ConsumerPage from "./components/landing/screens/ConsumerPage";
 import BusinessPage from "./components/landing/screens/BusinessPage";
@@ -30,10 +32,22 @@ import { ScrollContext } from "./contexts/landing/ScrollContext";
 
 const ConsumerLandingPageNew = ({ navigation }) => {
   const [isBusiness, setIsBusiness] = useState(false);
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
   const scrollViewRef = useRef(null);
   const scrollY = useSharedValue(0);
-  const { height: windowHeight } = useWindowDimensions();
-  const insets = useSafeAreaInsets();
+  const menuTranslateX = useSharedValue(0);
+  const { width, height: windowHeight } = useWindowDimensions();
+
+  const isMobile = width < 768;
+  const isNative = Platform.OS === "ios" || Platform.OS === "android";
+
+  // Initialize menuTranslateX to off-screen
+  React.useEffect(() => {
+    menuTranslateX.value = width;
+  }, [width]);
+
+  // Callback for opening menu (used by runOnJS in gesture handler)
+  const openMenu = useCallback(() => setIsMenuOpen(true), []);
 
   const [fontsLoaded, fontError] = useFonts({
     Inter_300Light,
@@ -64,6 +78,54 @@ const ConsumerLandingPageNew = ({ navigation }) => {
     },
   });
 
+  // Swipe gesture to open menu (swipe left) - native only
+  const swipeToOpenGesture = Gesture.Pan()
+    .activeOffsetX(-20) // Only activate on leftward swipes
+    .failOffsetY([-15, 15]) // Fail if vertical movement detected (allow scrolling)
+    .onUpdate((event) => {
+      // Only allow opening when menu is closed and swiping left
+      if (!isMenuOpen && event.translationX < 0) {
+        // Map the swipe to menu position (starts from right edge)
+        const newTranslateX = Math.max(0, width + event.translationX);
+        menuTranslateX.value = newTranslateX;
+      }
+    })
+    .onEnd((event) => {
+      if (!isMenuOpen) {
+        // Check if swipe was far enough or fast enough to open
+        const shouldOpen =
+          event.translationX < -SWIPE_THRESHOLD ||
+          event.velocityX < -SWIPE_VELOCITY_THRESHOLD;
+
+        if (shouldOpen) {
+          menuTranslateX.value = withSpring(0, {
+            damping: 20,
+            stiffness: 200,
+            mass: 0.5,
+          });
+          runOnJS(openMenu)();
+        } else {
+          // Snap back to closed
+          menuTranslateX.value = withSpring(width, {
+            damping: 20,
+            stiffness: 200,
+            mass: 0.5,
+          });
+        }
+      }
+    });
+
+  // Handler for menu state changes from Navbar
+  const handleMenuOpenChange = useCallback((open) => {
+    setIsMenuOpen(open);
+    // Also animate the menu when state changes from button press
+    menuTranslateX.value = withSpring(open ? 0 : width, {
+      damping: 20,
+      stiffness: 200,
+      mass: 0.5,
+    });
+  }, [width, menuTranslateX]);
+
   if (!fontsLoaded && !fontError) {
     return (
       <View style={{ flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: "#020408" }}>
@@ -72,6 +134,25 @@ const ConsumerLandingPageNew = ({ navigation }) => {
       </View>
     );
   }
+
+  // Render content - wrap with gesture detector on native mobile only
+  const scrollContent = (
+    <Animated.ScrollView
+      ref={scrollViewRef}
+      style={{ flex: 1 }}
+      onScroll={scrollHandler}
+      scrollEventThrottle={16}
+      showsVerticalScrollIndicator={false}
+    >
+      {isBusiness ? <BusinessPage /> : <ConsumerPage />}
+
+      <Footer
+        isBusiness={isBusiness}
+        togglePage={togglePage}
+        scrollToTop={scrollToTop}
+      />
+    </Animated.ScrollView>
+  );
 
   return (
     <ScrollContext.Provider value={{ scrollY, windowHeight }}>
@@ -87,23 +168,21 @@ const ConsumerLandingPageNew = ({ navigation }) => {
           isBusiness={isBusiness}
           togglePage={togglePage}
           scrollY={scrollY}
+          isMenuOpen={isMenuOpen}
+          onMenuOpenChange={handleMenuOpenChange}
+          menuTranslateX={menuTranslateX}
         />
 
-        <Animated.ScrollView
-          ref={scrollViewRef}
-          style={{ flex: 1 }}
-          onScroll={scrollHandler}
-          scrollEventThrottle={16}
-          showsVerticalScrollIndicator={false}
-        >
-          {isBusiness ? <BusinessPage /> : <ConsumerPage />}
-
-          <Footer
-            isBusiness={isBusiness}
-            togglePage={togglePage}
-            scrollToTop={scrollToTop}
-          />
-        </Animated.ScrollView>
+        {/* Wrap scroll content with gesture detector on native mobile */}
+        {isMobile && isNative ? (
+          <GestureDetector gesture={swipeToOpenGesture}>
+            <View style={{ flex: 1 }}>
+              {scrollContent}
+            </View>
+          </GestureDetector>
+        ) : (
+          scrollContent
+        )}
       </View>
     </ScrollContext.Provider>
   );

@@ -99,7 +99,10 @@ const updateSupabaseClient = async (newSettings) => {
   }
 };
 
-// Initialize on import
-initializeSupabaseClient();
+// Initialize on import and store promise for waiting
+const initPromise = initializeSupabaseClient();
 
-export { supabase, supabasePublic, updateSupabaseClient, initializeSupabaseClient };
+// Function to wait for initialization to complete
+const waitForSupabaseInit = () => initPromise;
+
+export { supabase, supabasePublic, updateSupabaseClient, initializeSupabaseClient, waitForSupabaseInit };

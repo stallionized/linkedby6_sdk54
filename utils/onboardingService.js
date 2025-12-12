@@ -156,48 +156,58 @@ export async function recordAccessCodeUsage(codeId, userId) {
 }
 
 /**
- * Validate a ZIP code against allowed ZIP codes (NJ/NY)
+ * Validate a ZIP code using us_locations table and check if in service area (NY/NJ)
  * @param {string} zipCode - The ZIP code to validate
- * @returns {Promise<Object>} Validation result with valid status and location info
+ * @returns {Promise<Object>} Validation result with valid status, inServiceArea, and location info
  */
 export async function validateZipCode(zipCode) {
   try {
     if (!zipCode || !/^\d{5}$/.test(zipCode)) {
       return {
         valid: false,
+        inServiceArea: false,
         state: null,
         city: null,
         error_message: 'Invalid ZIP code format'
       };
     }
 
+    // Query the us_locations table for ZIP code data
     const { data, error } = await supabase
-      .from('allowed_zip_codes')
-      .select('zip_code, state, city, county')
+      .from('us_locations')
+      .select('zip_code, state, city, area_name, district_name')
       .eq('zip_code', zipCode)
-      .eq('is_active', true)
+      .limit(1)
       .single();
 
     if (error || !data) {
       return {
         valid: false,
+        inServiceArea: false,
         state: null,
         city: null,
-        error_message: 'ZIP code is outside our current service area'
+        error_message: 'ZIP code not found'
       };
     }
 
+    // Check if ZIP is in service area (NY or NJ)
+    const serviceAreaStates = ['NY', 'NJ'];
+    const inServiceArea = serviceAreaStates.includes(data.state);
+
     return {
       valid: true,
+      inServiceArea: inServiceArea,
       state: data.state,
       city: data.city,
-      county: data.county,
-      error_message: null
+      county: data.district_name, // district_name contains the state/area name
+      area: data.area_name,
+      error_message: inServiceArea ? null : 'ZIP code is outside our current service area (NY/NJ only)'
     };
   } catch (error) {
     console.error('Exception validating ZIP code:', error);
     return {
       valid: false,
+      inServiceArea: false,
       state: null,
       city: null,
       error_message: 'Unable to validate ZIP code. Please try again.'

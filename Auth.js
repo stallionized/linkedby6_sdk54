@@ -8,8 +8,9 @@ import { resetNavigation } from './navigationRef';
 const AuthContext = createContext({});
 
 // Session timeout constants - moved outside component to prevent re-creation
-const SESSION_TIMEOUT = 5 * 60 * 1000; // 5 minutes in milliseconds
-const WARNING_DURATION = 30 * 1000; // 30 seconds warning before logout
+const SESSION_TIMEOUT = 60 * 60 * 1000; // 60 minutes in milliseconds
+const WARNING_DURATION = 60 * 1000; // 60 seconds warning before logout
+const LAST_ACTIVITY_KEY = 'lastActivityTimestamp'; // AsyncStorage key for persistent tracking
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
@@ -75,7 +76,7 @@ export const AuthProvider = ({ children }) => {
     }
   }, []);
 
-  const startSessionTimeout = useCallback(() => {
+  const startSessionTimeout = useCallback(async () => {
     // Clear any existing timeouts
     if (timeoutRef.current) {
       clearTimeout(timeoutRef.current);
@@ -84,7 +85,14 @@ export const AuthProvider = ({ children }) => {
       clearTimeout(warningRef.current);
     }
 
-    console.log('🕐 Starting session timeout timer - 5 minutes');
+    console.log(`🕐 Starting session timeout timer - ${SESSION_TIMEOUT / 1000 / 60} minutes`);
+
+    // Update last activity timestamp when starting timeout
+    try {
+      await AsyncStorage.setItem(LAST_ACTIVITY_KEY, Date.now().toString());
+    } catch (error) {
+      console.error('Error saving last activity timestamp:', error);
+    }
 
     // Set timeout to show warning (SESSION_TIMEOUT - WARNING_DURATION)
     const warningTime = SESSION_TIMEOUT - WARNING_DURATION;
@@ -136,15 +144,23 @@ export const AuthProvider = ({ children }) => {
 
   // Track user activity to reset timeout
   // Stable callback that uses refs to avoid infinite loops
-  const trackActivity = useCallback(() => {
+  const trackActivity = useCallback(async () => {
     // Only track if user is logged in
     if (!userRef.current) {
       console.log('⏭️ Skipping activity tracking - no user logged in');
       return;
     }
 
+    const now = Date.now();
     console.log('👆 User activity detected - resetting session timeout timer');
-    setLastActivity(Date.now());
+    setLastActivity(now);
+
+    // Persist last activity timestamp to AsyncStorage for cross-restart tracking
+    try {
+      await AsyncStorage.setItem(LAST_ACTIVITY_KEY, now.toString());
+    } catch (error) {
+      console.error('Error saving last activity timestamp:', error);
+    }
 
     // Clear any existing timeouts
     if (timeoutRef.current) {
@@ -169,31 +185,87 @@ export const AuthProvider = ({ children }) => {
       handleSessionTimeout();
     }, SESSION_TIMEOUT);
 
-    console.log(`⏱️ New session timeout set: Warning in ${warningTime/1000}s, Logout in ${SESSION_TIMEOUT/1000}s`);
+    console.log(`⏱️ New session timeout set: Warning in ${warningTime/1000/60}min, Logout in ${SESSION_TIMEOUT/1000/60}min`);
   }, [handleSessionTimeout]);
 
   useEffect(() => {
-    // Check for existing session
-    checkUserSession();
+    let isMounted = true;
 
-    // Listen for auth changes
+    // Listen for auth changes - this handles session restoration via INITIAL_SESSION
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
         console.log('Auth state changed:', event, session?.user?.email);
-        if (session?.user) {
-          setUser(session.user);
-          await AsyncStorage.setItem('user', JSON.stringify(session.user));
-          await ensureUserProfile(session.user); // Ensure user profile exists
-          await fetchAppConfig(); // Fetch config when user logs in
-          await initializeWebRTC(session.user.id); // Initialize WebRTC service
 
-          // Session timeout will be started by the separate useEffect below
+        if (!isMounted) return;
+
+        if (event === 'INITIAL_SESSION') {
+          // Supabase has loaded session from AsyncStorage
+          if (session?.user) {
+            console.log('✅ Session restored from storage for:', session.user.email);
+
+            // Check if session has timed out due to inactivity while app was closed
+            try {
+              const lastActivityStr = await AsyncStorage.getItem(LAST_ACTIVITY_KEY);
+              if (lastActivityStr) {
+                const lastActivityTime = parseInt(lastActivityStr, 10);
+                const elapsed = Date.now() - lastActivityTime;
+                const elapsedMinutes = Math.round(elapsed / 1000 / 60);
+
+                console.log(`⏱️ Time since last activity: ${elapsedMinutes} minutes`);
+
+                if (elapsed >= SESSION_TIMEOUT) {
+                  // Session has timed out while app was closed
+                  console.log('🔒 Session expired due to inactivity while app was closed');
+                  console.log(`⏰ Elapsed: ${elapsedMinutes} min, Timeout: ${SESSION_TIMEOUT / 1000 / 60} min`);
+
+                  // Sign out the user
+                  await supabase.auth.signOut();
+                  await AsyncStorage.removeItem(LAST_ACTIVITY_KEY);
+                  setUser(null);
+                  setLoading(false);
+
+                  // Navigate to landing page
+                  resetNavigation('Landing');
+                  return;
+                }
+              }
+            } catch (error) {
+              console.error('Error checking last activity:', error);
+            }
+
+            // Session is still valid, proceed with restoration
+            setUser(session.user);
+            await ensureUserProfile(session.user);
+            await fetchAppConfig();
+            await initializeWebRTC(session.user.id);
+
+            // Update last activity timestamp
+            await AsyncStorage.setItem(LAST_ACTIVITY_KEY, Date.now().toString());
+            console.log('🕐 User session restored - session timeout will be started');
+          } else {
+            console.log('📭 No stored session found');
+            setUser(null);
+            // Clear any stale activity timestamp
+            await AsyncStorage.removeItem(LAST_ACTIVITY_KEY);
+          }
+          setLoading(false);
+        } else if (event === 'SIGNED_IN') {
+          // Fresh login (not from storage restoration)
+          console.log('🔑 User signed in:', session?.user?.email);
+          setUser(session.user);
+          await ensureUserProfile(session.user);
+          await fetchAppConfig();
+          await initializeWebRTC(session.user.id);
+
+          // Set initial activity timestamp for new login
+          await AsyncStorage.setItem(LAST_ACTIVITY_KEY, Date.now().toString());
           console.log('🕐 User logged in - session timeout will be started');
-        } else {
+          setLoading(false);
+        } else if (event === 'SIGNED_OUT') {
+          console.log('👋 User signed out');
           setUser(null);
-          await AsyncStorage.removeItem('user');
-          setConfig({ neo4jUrl: null, webhookUrl: null }); // Clear config on logout
-          destroyWebRTC(); // Destroy WebRTC service on logout
+          setConfig({ neo4jUrl: null, webhookUrl: null });
+          destroyWebRTC();
 
           // Clear session timeout when user logs out
           if (timeoutRef.current) {
@@ -205,12 +277,23 @@ export const AuthProvider = ({ children }) => {
             warningRef.current = null;
           }
           setShowTimeoutWarning(false);
+
+          // Clear persistent activity timestamp
+          await AsyncStorage.removeItem(LAST_ACTIVITY_KEY);
+
+          setLoading(false);
+        } else if (event === 'TOKEN_REFRESHED') {
+          console.log('🔄 Token refreshed for:', session?.user?.email);
+          // Token was refreshed, update user if needed
+          if (session?.user) {
+            setUser(session.user);
+          }
         }
-        setLoading(false);
       }
     );
 
     return () => {
+      isMounted = false;
       subscription.unsubscribe();
       if (timeoutRef.current) {
         clearTimeout(timeoutRef.current);
@@ -231,92 +314,30 @@ export const AuthProvider = ({ children }) => {
   }, [user, loading, startSessionTimeout]);
 
   const checkUserSession = async () => {
+    // This is now a lightweight fallback - main session restoration happens via onAuthStateChange INITIAL_SESSION
     try {
-      console.log('🔍 Checking user session...');
-      setLoading(true);
+      console.log('🔍 Checking user session (fallback)...');
 
-      // Clear any potentially stale user state first
-      setUser(null);
+      const { data: { session }, error } = await supabase.auth.getSession();
 
-      // First check Supabase session with timeout (most reliable)
-      const sessionPromise = supabase.auth.getSession();
-      const timeoutPromise = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('Session check timeout')), 3000)
-      );
-
-      const { data: { session }, error } = await Promise.race([sessionPromise, timeoutPromise])
-        .catch(err => {
-          console.warn('Session check timed out or failed:', err.message);
-          return { data: { session: null }, error: err };
-        });
-      
       if (error) {
         console.error('❌ Error getting session:', error);
-        // Clear any stored data on error
-        await AsyncStorage.removeItem('user');
-        setUser(null);
         setLoading(false);
         return;
       }
-      
-      // Validate session more thoroughly
-      if (session?.user && session?.access_token) {
-        console.log('🔍 Found session, validating token for:', session.user.email);
-        
-        // Verify the session is actually valid by making an authenticated request
-        try {
-          const { data: profileCheck, error: profileError } = await supabase
-            .from('user_profiles')
-            .select('user_id')
-            .eq('user_id', session.user.id)
-            .limit(1);
-            
-          if (profileError && profileError.message?.includes('JWT')) {
-            console.log('❌ Session token is invalid, clearing session');
-            await supabase.auth.signOut();
-            await AsyncStorage.removeItem('user');
-            setUser(null);
-            setLoading(false);
-            return;
-          }
-          
-          // Session is valid
-          console.log('✅ Session validated successfully for:', session.user.email);
-          setUser(session.user);
-          await AsyncStorage.setItem('user', JSON.stringify(session.user));
-          await ensureUserProfile(session.user);
-          await fetchAppConfig();
-          await initializeWebRTC(session.user.id);
-          
-        } catch (validationError) {
-          console.error('❌ Session validation failed:', validationError);
-          await supabase.auth.signOut();
-          await AsyncStorage.removeItem('user');
-          setUser(null);
-        }
+
+      if (session?.user) {
+        console.log('✅ Session found for:', session.user.email);
+        setUser(session.user);
+        await ensureUserProfile(session.user);
+        await fetchAppConfig();
+        await initializeWebRTC(session.user.id);
       } else {
-        console.log('❌ No valid session found (missing user or access_token)');
-
-        // Quick check and clear AsyncStorage if needed (don't block)
-        AsyncStorage.getItem('user').then(storedUser => {
-          if (storedUser) {
-            console.log('🧹 Found stale stored user data, clearing...');
-            AsyncStorage.removeItem('user');
-          }
-        });
-
-        // No need to sign out if never signed in
+        console.log('📭 No session found');
         setUser(null);
       }
     } catch (error) {
       console.error('💥 Exception during session check:', error);
-      // On any exception, clear everything and ensure signed out state
-      try {
-        await AsyncStorage.removeItem('user');
-        await supabase.auth.signOut();
-      } catch (cleanupError) {
-        console.error('Error during cleanup:', cleanupError);
-      }
       setUser(null);
     } finally {
       setLoading(false);

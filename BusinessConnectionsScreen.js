@@ -1,18 +1,19 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from './supabaseClient';
 import { getSession } from './Auth';
-import { 
-  View, 
-  Text, 
-  TextInput, 
-  TouchableOpacity, 
-  StyleSheet, 
-  FlatList, 
-  Platform, 
-  Modal, 
-  Image, 
-  ScrollView, 
-  Alert
+import {
+  View,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  StyleSheet,
+  FlatList,
+  Platform,
+  Modal,
+  Image,
+  ScrollView,
+  Alert,
+  useWindowDimensions
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
@@ -26,6 +27,13 @@ import EditContactSlider from './EditContactSlider';
 import ConnectionRecommendationsSlider from './ConnectionRecommendationsSlider';
 import MobileHeader from './MobileHeader';
 import MobileBusinessNavigation from './MobileBusinessNavigation';
+import ContactSyncPreferenceModal from './components/ContactSyncPreferenceModal';
+import {
+  getPreferredPhoneNumber,
+  normalizePhoneNumber,
+  initializeContactSync,
+  getContactSyncPreference
+} from './services/ContactSyncService';
 
 const relationshipOptions = ['Customer', 'Friend', 'Colleague', 'Family', 'Partner'];
 
@@ -54,6 +62,20 @@ const BusinessConnectionsScreen = ({ navigation, route, isBusinessMode, onBusine
   const [selectedConnectionUserId, setSelectedConnectionUserId] = useState(null);
   const [selectedConnectionName, setSelectedConnectionName] = useState('');
   const [connectionUserIds, setConnectionUserIds] = useState({});
+
+  // State for contact sync preference modal
+  const [showSyncPreferenceModal, setShowSyncPreferenceModal] = useState(false);
+  const [pendingDeviceContacts, setPendingDeviceContacts] = useState([]);
+
+  // State for tally scroll indicator
+  const [tallyScrollPosition, setTallyScrollPosition] = useState(0);
+  const [tallyContentWidth, setTallyContentWidth] = useState(0);
+  const { width: screenWidth } = useWindowDimensions();
+  const tallyScrollRef = useRef(null);
+
+  // Calculate if there's more content to scroll
+  const canScrollRight = tallyContentWidth > screenWidth && tallyScrollPosition < tallyContentWidth - screenWidth + 32;
+  const canScrollLeft = tallyScrollPosition > 0;
 
   // Utility function to sync a contact to Neo4j
   const syncContactToNeo4j = async (contact) => {
@@ -170,13 +192,88 @@ const BusinessConnectionsScreen = ({ navigation, route, isBusinessMode, onBusine
 
   // Function to handle saving edited contact
   const handleSaveEditedContact = (updatedContact) => {
-    setContacts(contacts.map(c => 
+    setContacts(contacts.map(c =>
       c.id === updatedContact.id ? updatedContact : c
     ));
   };
 
   const handleSaveContact = (contact) => {
     setContacts(prev => [...prev, contact]);
+  };
+
+  // Function to apply bulk relationship change
+  const handleBulkApplyRelationship = async () => {
+    if (selectedContacts.length === 0) return;
+
+    try {
+      // Update in database
+      const { error } = await supabase
+        .from('connections')
+        .update({ relationship: bulkRelationship })
+        .in('contact_id', selectedContacts);
+
+      if (error) {
+        console.error('Error updating relationships:', error);
+        Alert.alert('Error', 'Failed to update relationships.');
+        return;
+      }
+
+      // Update local state
+      setContacts(contacts.map(c =>
+        selectedContacts.includes(c.id)
+          ? { ...c, relationship: bulkRelationship }
+          : c
+      ));
+
+      Alert.alert('Success', `Updated ${selectedContacts.length} contact(s) to ${bulkRelationship}.`);
+      setSelectedContacts([]);
+      setShowBulkActions(false);
+    } catch (error) {
+      console.error('Error in bulk relationship update:', error);
+      Alert.alert('Error', 'An error occurred while updating relationships.');
+    }
+  };
+
+  // Function to delete selected contacts
+  const handleBulkDelete = async () => {
+    if (selectedContacts.length === 0) return;
+
+    Alert.alert(
+      'Confirm Delete',
+      `Are you sure you want to delete ${selectedContacts.length} contact(s)? This cannot be undone.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              // Delete from database
+              const { error } = await supabase
+                .from('connections')
+                .delete()
+                .in('contact_id', selectedContacts);
+
+              if (error) {
+                console.error('Error deleting contacts:', error);
+                Alert.alert('Error', 'Failed to delete contacts.');
+                return;
+              }
+
+              // Update local state
+              setContacts(contacts.filter(c => !selectedContacts.includes(c.id)));
+
+              Alert.alert('Success', `Deleted ${selectedContacts.length} contact(s).`);
+              setSelectedContacts([]);
+              setShowBulkActions(false);
+            } catch (error) {
+              console.error('Error in bulk delete:', error);
+              Alert.alert('Error', 'An error occurred while deleting contacts.');
+            }
+          }
+        }
+      ]
+    );
   };
 
   // Function to check which connections are registered users with recommendations
@@ -243,15 +340,17 @@ const BusinessConnectionsScreen = ({ navigation, route, isBusinessMode, onBusine
       });
 
       if (data.length > 0) {
-        // Show contact selection or import all
-        Alert.alert(
-          'Import Contacts',
-          `Found ${data.length} contacts. Import all?`,
-          [
-            { text: 'Cancel', style: 'cancel' },
-            { text: 'Import All', onPress: () => processImportedContacts(data) }
-          ]
-        );
+        // Check if user has already set a sync preference
+        const existingPreference = await getContactSyncPreference();
+
+        if (existingPreference) {
+          // Already has preference, proceed with import
+          processImportedContacts(data, existingPreference);
+        } else {
+          // First time - show sync preference modal
+          setPendingDeviceContacts(data);
+          setShowSyncPreferenceModal(true);
+        }
       } else {
         Alert.alert('No Contacts', 'No contacts found on device.');
       }
@@ -261,30 +360,72 @@ const BusinessConnectionsScreen = ({ navigation, route, isBusinessMode, onBusine
     }
   };
 
-  const processImportedContacts = async (deviceContacts) => {
+  // Handle sync preference selection
+  const handleSyncPreferenceSelect = async (syncMode) => {
+    setShowSyncPreferenceModal(false);
+
+    if (pendingDeviceContacts.length > 0) {
+      await processImportedContacts(pendingDeviceContacts, syncMode);
+      setPendingDeviceContacts([]);
+
+      // If continuous sync selected, initialize background sync
+      if (syncMode === 'continuous') {
+        await initializeContactSync(userId);
+      }
+    }
+  };
+
+  const processImportedContacts = async (deviceContacts, syncMode = 'one-time') => {
     try {
       const session = await getSession();
       const currentUserId = session?.user?.id;
-      
+
       if (!currentUserId) {
         Alert.alert('Authentication Error', 'You must be logged in to import contacts.');
         return;
       }
 
+      // First, fetch existing connections to check for duplicates
+      const { data: existingConnections, error: fetchError } = await supabase
+        .from('connections')
+        .select('contact_phone_number')
+        .eq('user_id', currentUserId);
+
+      if (fetchError) {
+        console.error('Error fetching existing connections:', fetchError);
+      }
+
+      // Create a Set of normalized existing phone numbers for fast lookup
+      const existingPhoneNumbers = new Set(
+        (existingConnections || []).map(conn =>
+          normalizePhoneNumber(conn.contact_phone_number)
+        ).filter(Boolean)
+      );
+
+      // Filter and map device contacts with smart phone selection and duplicate detection
       const contactsToInsert = deviceContacts
         .filter(contact => contact.name && contact.phoneNumbers?.length > 0)
-        .map(contact => ({
-          user_id: currentUserId,
-          business_id: businessId,
-          name: contact.name,
-          phone: contact.phoneNumbers[0].number || '',
-          relationship: 'Customer',
-          family_relation: null,
-          friend_details: null
-        }));
+        .map(contact => {
+          const preferredPhone = getPreferredPhoneNumber(contact.phoneNumbers);
+          return {
+            user_id: currentUserId,
+            business_id: businessId,
+            name: contact.name,
+            contact_phone_number: preferredPhone || '',
+            relationship: 'Customer',
+            family_relation: null,
+            friend_details: null
+          };
+        })
+        .filter(contact => {
+          // Filter out duplicates (contacts already in database)
+          const normalizedPhone = normalizePhoneNumber(contact.contact_phone_number);
+          if (!normalizedPhone) return false;
+          return !existingPhoneNumbers.has(normalizedPhone);
+        });
 
       if (contactsToInsert.length === 0) {
-        Alert.alert('No Valid Contacts', 'No contacts with both name and phone number found.');
+        Alert.alert('No New Contacts', 'All contacts are either invalid or already imported.');
         return;
       }
 
@@ -292,7 +433,7 @@ const BusinessConnectionsScreen = ({ navigation, route, isBusinessMode, onBusine
         .from('connections')
         .insert(contactsToInsert)
         .select();
-        
+
       if (error) {
         console.error('Error saving imported contacts:', error);
         Alert.alert('Error', 'Failed to save imported contacts.');
@@ -300,9 +441,9 @@ const BusinessConnectionsScreen = ({ navigation, route, isBusinessMode, onBusine
       }
 
       const formattedContacts = data.map(conn => ({
-        id: conn.id,
+        id: conn.contact_id,
         name: conn.name,
-        phone: conn.phone,
+        phone: conn.contact_phone_number,
         relationship: conn.relationship,
         familyRelation: conn.family_relation,
         friendDetails: conn.friend_details
@@ -314,7 +455,16 @@ const BusinessConnectionsScreen = ({ navigation, route, isBusinessMode, onBusine
       }
 
       setContacts(prev => [...prev, ...formattedContacts]);
-      Alert.alert('Success', `${formattedContacts.length} contacts imported successfully.`);
+
+      const skippedCount = deviceContacts.filter(c => c.name && c.phoneNumbers?.length > 0).length - contactsToInsert.length;
+      let message = `${formattedContacts.length} contacts imported successfully.`;
+      if (skippedCount > 0) {
+        message += ` ${skippedCount} duplicate(s) skipped.`;
+      }
+      if (syncMode === 'continuous') {
+        message += ' Continuous sync is now enabled.';
+      }
+      Alert.alert('Success', message);
     } catch (error) {
       console.error('Error processing imported contacts:', error);
       Alert.alert('Error', 'An error occurred while importing contacts.');
@@ -419,56 +569,116 @@ const BusinessConnectionsScreen = ({ navigation, route, isBusinessMode, onBusine
           ListHeaderComponent={
             <>
               {/* Relationship Tallies */}
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tallyScrollContainer}>
-                <View style={styles.tallyContainer}>
-                  {(() => {
-                    const counts = {};
-                    contacts.forEach(c => {
-                      const rel = (c.relationship || '').toLowerCase();
-                      counts[rel] = (counts[rel] || 0) + 1;
-                    });
-                    const categories = ['customer', 'friend', 'colleague', 'family', 'partner'];
-                    const total = contacts.length;
-                    
-                    const gradientMap = {
-                      family: ['#A52A2A', '#800000'],
-                      partner: ['#E53935', '#C62828'],
-                      friend: ['#66BB6A', '#43A047'],
-                      colleague: ['#FB8C00', '#E65100'],
-                      customer: ['#BA68C8', '#8E24AA'],
-                    };
+              <View style={styles.tallyWrapper}>
+                <ScrollView
+                  ref={tallyScrollRef}
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  style={styles.tallyScrollContainer}
+                  contentContainerStyle={styles.tallyScrollContent}
+                  onScroll={(e) => setTallyScrollPosition(e.nativeEvent.contentOffset.x)}
+                  scrollEventThrottle={16}
+                  onContentSizeChange={(width) => setTallyContentWidth(width)}
+                  nestedScrollEnabled={true}
+                  bounces={true}
+                  decelerationRate="fast"
+                >
+                  <View style={styles.tallyContainer}>
+                    {(() => {
+                      const counts = {};
+                      contacts.forEach(c => {
+                        const rel = (c.relationship || '').toLowerCase();
+                        counts[rel] = (counts[rel] || 0) + 1;
+                      });
+                      const categories = ['customer', 'friend', 'colleague', 'family', 'partner'];
+                      const total = contacts.length;
 
-                    return (
-                      <>
-                        <LinearGradient
-                          colors={['#1565C0', '#0D47A1']}
-                          start={{ x: 0, y: 0 }}
-                          end={{ x: 1, y: 1 }}
-                          style={styles.tallyBadge}
-                        >
-                          <Text style={styles.tallyText}>Total: {total}</Text>
-                        </LinearGradient>
-                        {categories.map(cat => {
-                          const gradientColors = gradientMap[cat] || ['#999', '#999'];
-                          return (
-                            <LinearGradient
-                              key={cat}
-                              colors={gradientColors}
-                              start={{ x: 0, y: 0 }}
-                              end={{ x: 1, y: 1 }}
-                              style={styles.tallyBadge}
-                            >
-                              <Text style={styles.tallyText}>
-                                {cat.charAt(0).toUpperCase() + cat.slice(1)}: {counts[cat] || 0}
-                              </Text>
-                            </LinearGradient>
-                          );
-                        })}
-                      </>
-                    );
-                  })()}
-                </View>
-              </ScrollView>
+                      const gradientMap = {
+                        family: ['#A52A2A', '#800000'],
+                        partner: ['#E53935', '#C62828'],
+                        friend: ['#66BB6A', '#43A047'],
+                        colleague: ['#FB8C00', '#E65100'],
+                        customer: ['#BA68C8', '#8E24AA'],
+                      };
+
+                      return (
+                        <>
+                          <LinearGradient
+                            colors={['#1565C0', '#0D47A1']}
+                            start={{ x: 0, y: 0 }}
+                            end={{ x: 1, y: 1 }}
+                            style={styles.tallyBadge}
+                          >
+                            <Text style={styles.tallyText}>Total: {total}</Text>
+                          </LinearGradient>
+                          {categories.map(cat => {
+                            const gradientColors = gradientMap[cat] || ['#999', '#999'];
+                            return (
+                              <LinearGradient
+                                key={cat}
+                                colors={gradientColors}
+                                start={{ x: 0, y: 0 }}
+                                end={{ x: 1, y: 1 }}
+                                style={styles.tallyBadge}
+                              >
+                                <Text style={styles.tallyText}>
+                                  {cat.charAt(0).toUpperCase() + cat.slice(1)}: {counts[cat] || 0}
+                                </Text>
+                              </LinearGradient>
+                            );
+                          })}
+                        </>
+                      );
+                    })()}
+                  </View>
+                </ScrollView>
+
+                {/* Right scroll button - shows when there's more content to the right */}
+                {canScrollRight && (
+                  <TouchableOpacity
+                    style={styles.scrollIndicatorRight}
+                    onPress={() => {
+                      tallyScrollRef.current?.scrollTo({
+                        x: tallyScrollPosition + 150,
+                        animated: true
+                      });
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <LinearGradient
+                      colors={['rgba(255,255,255,0)', 'rgba(255,255,255,0.9)', 'rgba(255,255,255,1)']}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 0 }}
+                      style={styles.scrollIndicatorGradient}
+                    >
+                      <Icon name="chevron-right" size={24} color="#333" />
+                    </LinearGradient>
+                  </TouchableOpacity>
+                )}
+
+                {/* Left scroll button - shows when scrolled */}
+                {canScrollLeft && (
+                  <TouchableOpacity
+                    style={styles.scrollIndicatorLeft}
+                    onPress={() => {
+                      tallyScrollRef.current?.scrollTo({
+                        x: Math.max(0, tallyScrollPosition - 150),
+                        animated: true
+                      });
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <LinearGradient
+                      colors={['rgba(255,255,255,1)', 'rgba(255,255,255,0.9)', 'rgba(255,255,255,0)']}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 0 }}
+                      style={styles.scrollIndicatorGradient}
+                    >
+                      <Icon name="chevron-left" size={24} color="#333" />
+                    </LinearGradient>
+                  </TouchableOpacity>
+                )}
+              </View>
 
               {/* Bulk Actions */}
               {showBulkActions && selectedContacts.length > 0 && (
@@ -496,14 +706,14 @@ const BusinessConnectionsScreen = ({ navigation, route, isBusinessMode, onBusine
                     <View style={styles.bulkActionButtons}>
                       <TouchableOpacity
                         style={[styles.bulkActionButton, { backgroundColor: '#1E88E5' }]}
-                        onPress={() => {/* Apply bulk relationship logic */}}
+                        onPress={handleBulkApplyRelationship}
                       >
                         <Text style={styles.bulkActionButtonText}>Apply</Text>
                       </TouchableOpacity>
                       
                       <TouchableOpacity
                         style={[styles.bulkActionButton, { backgroundColor: '#F44336' }]}
-                        onPress={() => {/* Delete bulk contacts logic */}}
+                        onPress={handleBulkDelete}
                       >
                         <Text style={styles.bulkActionButtonText}>Delete</Text>
                       </TouchableOpacity>
@@ -554,6 +764,17 @@ const BusinessConnectionsScreen = ({ navigation, route, isBusinessMode, onBusine
         currentUserId={userId}
       />
 
+      {/* Contact Sync Preference Modal */}
+      <ContactSyncPreferenceModal
+        isVisible={showSyncPreferenceModal}
+        onClose={() => {
+          setShowSyncPreferenceModal(false);
+          setPendingDeviceContacts([]);
+        }}
+        onSelect={handleSyncPreferenceSelect}
+        contactCount={pendingDeviceContacts.length}
+      />
+
       <MobileBusinessNavigation navigation={navigation} activeRoute="BusinessConnections" visible={true} />
     </SafeAreaView>
   );
@@ -567,12 +788,20 @@ const styles = StyleSheet.create({
   contentContainer: {
     flex: 1,
   },
-  tallyScrollContainer: {
+  tallyWrapper: {
+    position: 'relative',
     marginVertical: 10,
+  },
+  tallyScrollContainer: {
+    flexGrow: 0,
+  },
+  tallyScrollContent: {
+    alignItems: 'center',
   },
   tallyContainer: {
     flexDirection: 'row',
     paddingHorizontal: 16,
+    paddingRight: 40, // Extra padding for the scroll indicator
     gap: 10,
   },
   tallyBadge: {
@@ -587,6 +816,28 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontWeight: '600',
     fontSize: 12,
+  },
+  scrollIndicatorRight: {
+    position: 'absolute',
+    right: 0,
+    top: 0,
+    bottom: 0,
+    justifyContent: 'center',
+    alignItems: 'flex-end',
+  },
+  scrollIndicatorLeft: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    bottom: 0,
+    justifyContent: 'center',
+    alignItems: 'flex-start',
+  },
+  scrollIndicatorGradient: {
+    width: 40,
+    height: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   bulkActionsContainer: {
     backgroundColor: '#f5f5f5',

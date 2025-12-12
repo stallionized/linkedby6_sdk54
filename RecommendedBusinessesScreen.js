@@ -860,8 +860,8 @@ const RecommendedBusinessesScreen = ({ navigation }) => {
 
   if (isLoading) {
     return (
-      <SafeAreaView style={styles.container}>
-        <StatusBar style="light" />
+      <SafeAreaView style={styles.container} edges={['top']}>
+        <StatusBar style="dark" />
         <MobileHeader navigation={navigation} title="Recommended" />
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color={colors.primaryBlue} />
@@ -873,9 +873,9 @@ const RecommendedBusinessesScreen = ({ navigation }) => {
   }
 
   return (
-    <SafeAreaView style={styles.container}>
-      <StatusBar style="light" />
-      
+    <SafeAreaView style={styles.container} edges={['top']}>
+      <StatusBar style="dark" />
+
       {/* Header */}
       <MobileHeader
         navigation={navigation}
@@ -1073,7 +1073,7 @@ const RecommendedBusinessesScreen = ({ navigation }) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.backgroundGray,
+    backgroundColor: '#fff',
   },
   content: {
     flex: 1,

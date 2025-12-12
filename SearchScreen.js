@@ -41,6 +41,18 @@ import {
   isClarificationResponse,
 } from './utils/searchService';
 
+// Import location service for "near me" functionality
+import {
+  containsNearMePhrase,
+  requestLocationPermission,
+  getPermissionStatus,
+  getUserLocationWithFallback,
+  formatLocationDisplay,
+  openLocationSettings,
+  isLocationAvailable,
+  isNativeApp,
+} from './utils/locationService';
+
 // Import web scroll styles
 import { webRootContainer, webScrollContainer, webScrollView, webScrollContent } from './utils/webScrollStyles';
 
@@ -284,6 +296,11 @@ const SearchScreen = ({ navigation, route, isBusinessMode, onBusinessModeToggle 
   const [selectedBusinessId, setSelectedBusinessId] = useState(null);
   const [selectedConnectionData, setSelectedConnectionData] = useState(null);
 
+  // Location state for "near me" functionality
+  const [userLocation, setUserLocation] = useState(null);
+  const [locationPermission, setLocationPermission] = useState('undetermined');
+  const [locationLoading, setLocationLoading] = useState(false);
+
   // Animation refs
   const chatSlideAnim = useRef(new Animated.Value(-CHAT_SLIDER_WIDTH)).current;
   const businessSlideAnim = useRef(new Animated.Value(BUSINESS_SLIDER_WIDTH)).current;
@@ -398,6 +415,131 @@ const SearchScreen = ({ navigation, route, isBusinessMode, onBusinessModeToggle 
     };
     loadUserSessionAndData();
   }, []);
+
+  // Request location permission when user first visits search screen after signing in
+  useEffect(() => {
+    const requestLocationOnMount = async () => {
+      // Only request on native mobile platforms
+      if (!isNativeApp()) {
+        console.log('Location services: Not a native app, skipping');
+        return;
+      }
+
+      // Only request if user is logged in and screen has initialized
+      if (!currentUserId || !hasInitialized) {
+        return;
+      }
+
+      // Check if we already have permission
+      const { status: currentStatus } = await getPermissionStatus();
+      if (currentStatus === 'granted') {
+        setLocationPermission('granted');
+        // Get user's location
+        setLocationLoading(true);
+        try {
+          const location = await getUserLocationWithFallback();
+          setUserLocation(location);
+          console.log('📍 User location obtained:', formatLocationDisplay(location));
+        } catch (error) {
+          console.error('Error getting user location:', error);
+        } finally {
+          setLocationLoading(false);
+        }
+        return;
+      }
+
+      // Check if location services are available
+      const available = await isLocationAvailable();
+      if (!available) {
+        console.log('Location services not available on this device');
+        setLocationPermission('unavailable');
+        return;
+      }
+
+      // Request permission
+      setLocationLoading(true);
+      try {
+        const { status, canAskAgain } = await requestLocationPermission();
+        setLocationPermission(status);
+
+        if (status === 'granted') {
+          // Get user's location
+          const location = await getUserLocationWithFallback();
+          setUserLocation(location);
+          console.log('📍 User location obtained:', formatLocationDisplay(location));
+        } else {
+          // Permission denied - add system message to chat
+          addLocationDeniedMessage(canAskAgain);
+        }
+      } catch (error) {
+        console.error('Error during location setup:', error);
+      } finally {
+        setLocationLoading(false);
+      }
+    };
+
+    requestLocationOnMount();
+  }, [currentUserId, hasInitialized]);
+
+  // Helper to add location denied message to chat
+  const addLocationDeniedMessage = (canAskAgain) => {
+    const message = canAskAgain
+      ? 'Location access was denied. To get better "near me" search results, please enable location access. Tap the location icon to try again.'
+      : 'Location access was denied. To enable, please go to your device settings and allow location access for LinkedBySix.';
+
+    setMessages(prev => [...prev, {
+      _id: `location_denied_${Date.now()}`,
+      text: message,
+      createdAt: new Date(),
+      type: 'system',
+    }]);
+  };
+
+  // Handle retry location permission (called when user taps location icon)
+  const handleRetryLocationPermission = async () => {
+    if (locationLoading) return;
+
+    setLocationLoading(true);
+
+    try {
+      const { status: currentStatus } = await getPermissionStatus();
+
+      if (currentStatus === 'denied') {
+        // Can't ask again programmatically on some platforms, need to open settings
+        Alert.alert(
+          'Location Required',
+          'LinkedBySix needs your location to find businesses near you. Please enable location access in your device settings.',
+          [
+            { text: 'Open Settings', onPress: openLocationSettings },
+            { text: 'Cancel', style: 'cancel' },
+          ]
+        );
+        setLocationLoading(false);
+        return;
+      }
+
+      const { status, canAskAgain } = await requestLocationPermission();
+      setLocationPermission(status);
+
+      if (status === 'granted') {
+        const location = await getUserLocationWithFallback();
+        setUserLocation(location);
+        // Add success message
+        setMessages(prev => [...prev, {
+          _id: `location_enabled_${Date.now()}`,
+          text: `Location enabled! Searching near ${formatLocationDisplay(location)}.`,
+          createdAt: new Date(),
+          type: 'system',
+        }]);
+      } else {
+        addLocationDeniedMessage(canAskAgain);
+      }
+    } catch (error) {
+      console.error('Error retrying location permission:', error);
+    } finally {
+      setLocationLoading(false);
+    }
+  };
 
   // Refresh recommendations when screen is focused to sync with RecommendedBusinessesScreen
   useFocusEffect(
@@ -514,6 +656,52 @@ const SearchScreen = ({ navigation, route, isBusinessMode, onBusinessModeToggle 
     const messageText = text || inputText;
     if (!messageText.trim() || isTyping) return;
 
+    // Check for "near me" phrase in the query
+    const isNearMeSearch = containsNearMePhrase(messageText);
+    let currentLocation = userLocation;
+
+    // If "near me" search but no location permission, prompt user
+    if (isNearMeSearch && locationPermission !== 'granted') {
+      // Add system message explaining location is needed
+      setMessages(prev => [...prev, {
+        _id: `location_needed_${Date.now()}`,
+        text: 'To search for businesses near you, please enable location access.',
+        createdAt: new Date(),
+        type: 'system',
+      }]);
+
+      // Request permission
+      setLocationLoading(true);
+      try {
+        const { status, canAskAgain } = await requestLocationPermission();
+        setLocationPermission(status);
+
+        if (status === 'granted') {
+          const location = await getUserLocationWithFallback();
+          setUserLocation(location);
+          currentLocation = location;
+          console.log('📍 Location obtained for near me search:', formatLocationDisplay(location));
+        } else {
+          // Permission denied - show message and don't proceed
+          addLocationDeniedMessage(canAskAgain);
+          setLocationLoading(false);
+          return; // Don't proceed with search without location for "near me" queries
+        }
+      } catch (error) {
+        console.error('Error getting location for near me search:', error);
+        setMessages(prev => [...prev, {
+          _id: `location_error_${Date.now()}`,
+          text: 'Unable to get your location. Please try again or search by city name instead.',
+          createdAt: new Date(),
+          type: 'system',
+        }]);
+        setLocationLoading(false);
+        return;
+      } finally {
+        setLocationLoading(false);
+      }
+    }
+
     const userMessage = {
       _id: Date.now().toString(),
       text: messageText.trim(),
@@ -528,6 +716,9 @@ const SearchScreen = ({ navigation, route, isBusinessMode, onBusinessModeToggle 
 
     try {
       console.log('🚀 Sending query to Edge Function:', messageText.trim());
+      if (currentLocation) {
+        console.log('📍 Including user location:', formatLocationDisplay(currentLocation));
+      }
 
       // Build conversation history from previous messages
       const conversationHistory = buildConversationHistory(messages, 5);
@@ -538,7 +729,7 @@ const SearchScreen = ({ navigation, route, isBusinessMode, onBusinessModeToggle 
         version: Platform.Version,
       };
 
-      // Call the Edge Function instead of webhook
+      // Call the Edge Function with user location
       const searchResponse = await performConversationalSearch({
         session_id: sessionId,
         query: messageText.trim(),
@@ -546,7 +737,7 @@ const SearchScreen = ({ navigation, route, isBusinessMode, onBusinessModeToggle 
           max_results: 10,
         },
         conversation_history: conversationHistory,
-        user_location: null, // You can add user location later
+        user_location: currentLocation, // Now passes actual location data
         device_info: deviceInfo,
       });
 
@@ -793,16 +984,17 @@ const SearchScreen = ({ navigation, route, isBusinessMode, onBusinessModeToggle 
       const { data, error } = await supabase
         .from('business_profiles')
         .select(`
-          business_id, 
-          business_name, 
-          description, 
-          industry, 
-          image_url, 
-          city, 
-          state, 
-          zip_code, 
-          coverage_type, 
-          coverage_details, 
+          business_id,
+          business_name,
+          description,
+          industry,
+          image_url,
+          logo_dominant_color,
+          city,
+          state,
+          zip_code,
+          coverage_type,
+          coverage_details,
           coverage_radius
         `)
         .in('business_id', ids);
@@ -1082,13 +1274,38 @@ const SearchScreen = ({ navigation, route, isBusinessMode, onBusinessModeToggle 
         >
           <View style={styles.chatHeaderContent}>
             <Text style={styles.chatHeaderTitle}>AI Search Chat</Text>
+
+            {/* Location indicator */}
+            <TouchableOpacity
+              style={styles.locationIndicator}
+              onPress={handleRetryLocationPermission}
+              disabled={locationLoading}
+            >
+              {locationLoading ? (
+                <ActivityIndicator size="small" color={colors.cardWhite} />
+              ) : (
+                <>
+                  <Ionicons
+                    name={locationPermission === 'granted' ? 'location' : 'location-outline'}
+                    size={16}
+                    color={locationPermission === 'granted' ? '#4ADE80' : colors.cardWhite}
+                  />
+                  {userLocation && (
+                    <Text style={styles.locationText} numberOfLines={1}>
+                      {formatLocationDisplay(userLocation)}
+                    </Text>
+                  )}
+                </>
+              )}
+            </TouchableOpacity>
+
             <View style={styles.chatHeaderActions}>
               <TouchableOpacity style={styles.newSearchChatButton} onPress={handleNewSearch}>
                 <Ionicons name="refresh-outline" size={16} color={colors.cardWhite} />
                 <Text style={styles.newSearchChatButtonText}>New Search</Text>
               </TouchableOpacity>
-              <TouchableOpacity 
-                style={styles.chatHeaderClose} 
+              <TouchableOpacity
+                style={styles.chatHeaderClose}
                 onPress={toggleChatSlider}
               >
                 <Ionicons name="close" size={24} color={colors.cardWhite} />
@@ -1499,6 +1716,23 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: colors.cardWhite,
     flex: 1,
+  },
+  locationIndicator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    marginRight: 8,
+    minWidth: 32,
+    justifyContent: 'center',
+  },
+  locationText: {
+    fontSize: 11,
+    color: colors.cardWhite,
+    marginLeft: 4,
+    maxWidth: 80,
   },
   chatHeaderActions: {
     flexDirection: 'row',

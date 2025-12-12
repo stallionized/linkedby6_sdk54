@@ -1,17 +1,18 @@
-import React, { useRef, useEffect } from 'react';
+import React from 'react';
 import {
   View,
   Text,
   StyleSheet,
   TouchableOpacity,
-  Animated,
   Dimensions,
   ScrollView,
-  PanResponder,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import Animated from 'react-native-reanimated';
+import { GestureDetector } from 'react-native-gesture-handler';
+import { useSliderGesture } from './hooks/useSliderGesture';
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 const SLIDER_WIDTH = screenWidth * 0.85; // 85% of screen width
@@ -33,68 +34,22 @@ const colors = {
   businessOrange: '#FF5722',
 };
 
-const ConnectionsDetailSlider = ({ 
-  isVisible, 
-  onClose, 
-  pathData, 
-  businessName, 
-  currentUserFullName, 
-  currentUserPhoneNumber 
+const ConnectionsDetailSlider = ({
+  isVisible,
+  onClose,
+  pathData,
+  businessName,
+  currentUserFullName,
+  currentUserPhoneNumber
 }) => {
   const insets = useSafeAreaInsets();
-  const slideAnim = useRef(new Animated.Value(SLIDER_WIDTH)).current;
 
-  // Animation for showing/hiding slider
-  useEffect(() => {
-    if (isVisible) {
-      Animated.spring(slideAnim, {
-        toValue: 0,
-        useNativeDriver: false,
-        tension: 100,
-        friction: 8,
-      }).start();
-    } else {
-      Animated.spring(slideAnim, {
-        toValue: SLIDER_WIDTH,
-        useNativeDriver: false,
-        tension: 120, // Slightly faster closing animation
-        friction: 7,  // Less friction for smoother slide out
-      }).start();
-    }
-  }, [isVisible]);
-
-  // Custom close handler with animation
-  const handleClose = () => {
-    Animated.spring(slideAnim, {
-      toValue: SLIDER_WIDTH,
-      useNativeDriver: false,
-      tension: 120,
-      friction: 7,
-    }).start(() => {
-      onClose(); // Call onClose after animation completes
-    });
-  };
-
-  // Pan responder for swipe to close
-  const panResponder = PanResponder.create({
-    onMoveShouldSetPanResponder: (evt, gestureState) => {
-      return Math.abs(gestureState.dx) > Math.abs(gestureState.dy) && Math.abs(gestureState.dx) > 10;
-    },
-    onPanResponderMove: (evt, gestureState) => {
-      if (gestureState.dx > 0) {
-        slideAnim.setValue(Math.min(gestureState.dx, SLIDER_WIDTH));
-      }
-    },
-    onPanResponderRelease: (evt, gestureState) => {
-      if (gestureState.dx > SLIDER_WIDTH * 0.3) {
-        onClose();
-      } else {
-        Animated.spring(slideAnim, {
-          toValue: 0,
-          useNativeDriver: false,
-        }).start();
-      }
-    },
+  // Use the reusable slider gesture hook for smooth, natural swipe-to-close
+  const { animatedStyle, panGesture } = useSliderGesture({
+    isVisible,
+    onClose,
+    sliderWidth: SLIDER_WIDTH,
+    direction: 'right',
   });
 
   // Parse the path data to create ordered nodes
@@ -331,35 +286,35 @@ const ConnectionsDetailSlider = ({
   if (!isVisible) return null;
 
   return (
-    <Animated.View 
-      style={[
-        styles.container,
-        { 
-          transform: [{ translateX: slideAnim }],
-          top: insets.top,
-          height: screenHeight - insets.top - insets.bottom,
-        }
-      ]}
-      {...panResponder.panHandlers}
-    >
-      <SafeAreaView style={styles.safeArea} edges={[]}>
-        {/* Header */}
-        <LinearGradient
-          colors={[colors.primaryBlue, colors.darkBlue]}
-          style={styles.header}
-        >
-          <View style={styles.headerContent}>
-            <View style={styles.headerLeft}>
-              <Ionicons name="people" size={24} color={colors.cardWhite} />
-              <Text style={styles.headerTitle} numberOfLines={2}>
-                {businessName || 'Business'}
-              </Text>
+    <GestureDetector gesture={panGesture}>
+      <Animated.View
+        style={[
+          styles.container,
+          {
+            top: insets.top,
+            height: screenHeight - insets.top - insets.bottom,
+          },
+          animatedStyle,
+        ]}
+      >
+        <SafeAreaView style={styles.safeArea} edges={[]}>
+          {/* Header */}
+          <LinearGradient
+            colors={[colors.primaryBlue, colors.darkBlue]}
+            style={styles.header}
+          >
+            <View style={styles.headerContent}>
+              <View style={styles.headerLeft}>
+                <Ionicons name="people" size={24} color={colors.cardWhite} />
+                <Text style={styles.headerTitle} numberOfLines={2}>
+                  {businessName || 'Business'}
+                </Text>
+              </View>
+              <TouchableOpacity style={styles.closeButton} onPress={onClose}>
+                <Ionicons name="close" size={24} color={colors.cardWhite} />
+              </TouchableOpacity>
             </View>
-            <TouchableOpacity style={styles.closeButton} onPress={handleClose}>
-              <Ionicons name="close" size={24} color={colors.cardWhite} />
-            </TouchableOpacity>
-          </View>
-        </LinearGradient>
+          </LinearGradient>
 
         {/* Degrees of separation - outside header */}
         {connectionData.hasConnection && (
@@ -406,8 +361,9 @@ const ConnectionsDetailSlider = ({
             </View>
           )}
         </ScrollView>
-      </SafeAreaView>
-    </Animated.View>
+        </SafeAreaView>
+      </Animated.View>
+    </GestureDetector>
   );
 };
 

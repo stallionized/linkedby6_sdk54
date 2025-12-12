@@ -5,7 +5,6 @@ import {
   View,
   Text,
   StyleSheet,
-  Animated,
   TouchableOpacity,
   TouchableWithoutFeedback,
   Dimensions,
@@ -14,19 +13,40 @@ import {
   ScrollView,
   Alert,
   Modal,
-  SafeAreaView,
   StatusBar
 } from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Picker } from '@react-native-picker/picker';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import Animated, { useAnimatedStyle, withTiming, useSharedValue } from 'react-native-reanimated';
+import { GestureDetector } from 'react-native-gesture-handler';
+import { useSliderGesture } from './hooks/useSliderGesture';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const SLIDER_WIDTH = SCREEN_WIDTH * 0.85;
 
 const AddContactSlider = ({ isVisible, onClose, onSave }) => {
-  const slideAnim = useRef(new Animated.Value(SLIDER_WIDTH)).current;
-  const fadeAnim = useRef(new Animated.Value(0)).current;
   const debounceTimeoutRef = useRef(null);
+  const insets = useSafeAreaInsets();
+
+  // Use the reusable slider gesture hook for smooth, natural swipe-to-close
+  const { animatedStyle, panGesture } = useSliderGesture({
+    isVisible,
+    onClose,
+    sliderWidth: SLIDER_WIDTH,
+    direction: 'right',
+  });
+
+  // Overlay fade animation
+  const overlayOpacity = useSharedValue(0);
+
+  useEffect(() => {
+    overlayOpacity.value = withTiming(isVisible ? 0.5 : 0, { duration: 300 });
+  }, [isVisible]);
+
+  const overlayAnimatedStyle = useAnimatedStyle(() => ({
+    opacity: overlayOpacity.value,
+  }));
 
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('(   )    -    ');
@@ -36,37 +56,6 @@ const AddContactSlider = ({ isVisible, onClose, onSave }) => {
   const [friendDetails, setFriendDetails] = useState('');
   const [isExistingUser, setIsExistingUser] = useState(false);
   const [existingUserFullName, setExistingUserFullName] = useState('');
-
-  // Animation useEffect
-  useEffect(() => {
-    if (isVisible) {
-      Animated.parallel([
-        Animated.timing(slideAnim, {
-          toValue: 0,
-          duration: 300,
-          useNativeDriver: true,
-        }),
-        Animated.timing(fadeAnim, {
-          toValue: 0.5,
-          duration: 300,
-          useNativeDriver: true,
-        })
-      ]).start();
-    } else {
-      Animated.parallel([
-        Animated.timing(slideAnim, {
-          toValue: SLIDER_WIDTH,
-          duration: 300,
-          useNativeDriver: true,
-        }),
-        Animated.timing(fadeAnim, {
-          toValue: 0,
-          duration: 300,
-          useNativeDriver: true,
-        })
-      ]).start();
-    }
-  }, [isVisible, slideAnim, fadeAnim]);
 
   // Phone number checking useEffect
   useEffect(() => {
@@ -353,22 +342,26 @@ const AddContactSlider = ({ isVisible, onClose, onSave }) => {
       animationType="none"
       onRequestClose={onClose}
     >
-      <SafeAreaView style={styles.container}>
+      <View style={styles.container}>
         <StatusBar barStyle="light-content" backgroundColor="rgba(0,0,0,0.5)" />
-        
+
         <TouchableWithoutFeedback onPress={onClose}>
-          <Animated.View style={[styles.overlay, { opacity: fadeAnim }]} />
+          <Animated.View style={[styles.overlay, overlayAnimatedStyle]} />
         </TouchableWithoutFeedback>
 
-        <Animated.View
-          style={[
-            styles.slider,
-            {
-              transform: [{ translateX: slideAnim }],
-              width: SLIDER_WIDTH
-            }
-          ]}
-        >
+        <GestureDetector gesture={panGesture}>
+          <Animated.View
+            style={[
+              styles.slider,
+              {
+                width: SLIDER_WIDTH,
+                top: insets.top,
+                bottom: insets.bottom,
+                height: undefined
+              },
+              animatedStyle,
+            ]}
+          >
           <View style={styles.header}>
             <Text style={styles.headerText}>Add Contact</Text>
             <TouchableOpacity onPress={onClose} style={styles.closeButton}>
@@ -470,8 +463,9 @@ const AddContactSlider = ({ isVisible, onClose, onSave }) => {
               <Text style={styles.saveButtonText}>Save Contact</Text>
             </TouchableOpacity>
           </ScrollView>
-        </Animated.View>
-      </SafeAreaView>
+          </Animated.View>
+        </GestureDetector>
+      </View>
     </Modal>
   );
 };
@@ -486,15 +480,15 @@ const styles = StyleSheet.create({
   },
   slider: {
     position: 'absolute',
-    top: 0,
     right: 0,
-    height: '100%',
     backgroundColor: '#fff',
     shadowColor: '#000',
     shadowOffset: { width: -2, height: 0 },
     shadowOpacity: 0.25,
     shadowRadius: 5,
     elevation: 5,
+    borderTopLeftRadius: 16,
+    borderBottomLeftRadius: 16,
   },
   header: {
     flexDirection: 'row',
@@ -503,7 +497,6 @@ const styles = StyleSheet.create({
     padding: 16,
     borderBottomWidth: 1,
     borderBottomColor: '#e0e0e0',
-    paddingTop: Platform.OS === 'ios' ? 50 : 16,
   },
   headerText: {
     fontSize: 18,

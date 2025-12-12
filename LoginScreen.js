@@ -86,6 +86,9 @@ const LoginScreen = ({ navigation, route }) => {
       if (result.success) {
         console.log('Login successful, user:', result.user.email);
 
+        // Keep isSubmitting true to prevent any UI flash during navigation
+        // The navigation will unmount this component anyway
+
         // If intent is business, check business status and route accordingly
         if (intent === 'business') {
           try {
@@ -122,11 +125,14 @@ const LoginScreen = ({ navigation, route }) => {
           }
         } else {
           // Default consumer flow - go to Search screen
+          console.log('Navigating to Search screen...');
           navigation.reset({
             index: 0,
             routes: [{ name: 'Search' }],
           });
         }
+        // Note: Don't set isSubmitting to false here - let the navigation handle it
+        return;
       } else {
         console.error('Login failed:', result.error);
         showAlert('Login Error', result.error || 'Login failed');

@@ -74,13 +74,8 @@ function AppNavigator() {
   const isAuthenticated = user && user.id && user.email;
   const initialRouteName = isAuthenticated ? "Search" : "Landing";
 
-  console.log("🔍 Auth loaded - User object:", user ? {
-    id: user.id,
-    email: user.email,
-    hasRequiredFields: !!(user.id && user.email)
-  } : null);
-  console.log("🎯 Navigation decision:", isAuthenticated ? "authenticated -> Search" : "not authenticated -> Landing");
-  console.log("🔑 Navigator key:", isAuthenticated ? 'authenticated' : 'unauthenticated');
+  console.log("🔍 Auth loaded - User object:", user ? { id: user.id, email: user.email } : null);
+  console.log("🎯 Navigation initial route:", initialRouteName);
 
   const handleBusinessModeToggle = (businessMode) => {
     console.log("Business mode toggled to:", businessMode);
@@ -89,14 +84,12 @@ function AppNavigator() {
 
   return (
     <Stack.Navigator
-      key={isAuthenticated ? 'authenticated' : 'unauthenticated'}
       initialRouteName={initialRouteName}
       screenOptions={{
         headerShown: false,
         cardStyle: { backgroundColor: 'transparent' },
         animationEnabled: true,
-        gestureEnabled: true,
-        gestureDirection: 'horizontal',
+        gestureEnabled: false,
       }}
     >
       <Stack.Screen name="Landing" component={ConsumerLandingPageNew} />
