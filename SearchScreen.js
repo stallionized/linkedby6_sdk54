@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import {
   View,
   Text,
@@ -309,6 +309,30 @@ const SearchScreen = ({ navigation, route, isBusinessMode, onBusinessModeToggle 
   const scrollViewRef = useRef(null);
   const chatScrollViewRef = useRef(null);
   const textInputRef = useRef(null);
+
+  // Sort business profiles by degrees of separation (lowest first)
+  // Businesses without connections go to the end
+  const sortedBusinessProfiles = useMemo(() => {
+    if (!businessProfiles.length) return [];
+
+    return [...businessProfiles].sort((a, b) => {
+      const pathA = connectionPaths[a.business_id];
+      const pathB = connectionPaths[b.business_id];
+
+      // Get degrees for each business (subtract 1 to match display logic)
+      const getAdjustedDegrees = (path) => {
+        if (!path || !path.found || !path.data || !path.data[0]) return Infinity;
+        const rawDegrees = path.data[0].degrees;
+        return Math.max(1, rawDegrees - 1); // Same adjustment as display
+      };
+
+      const degreesA = getAdjustedDegrees(pathA);
+      const degreesB = getAdjustedDegrees(pathB);
+
+      // Sort by degrees (lowest first), Infinity (no connection) goes to end
+      return degreesA - degreesB;
+    });
+  }, [businessProfiles, connectionPaths]);
 
   // Clear all state when user changes
   const clearAllState = () => {
@@ -1212,19 +1236,19 @@ const SearchScreen = ({ navigation, route, isBusinessMode, onBusinessModeToggle 
             </View>
           )}
           
-          {businessProfiles.length > 0 ? (
+          {sortedBusinessProfiles.length > 0 ? (
             <>
               <View style={styles.resultsHeaderContainer}>
                 <Text style={styles.resultsHeader}>
-                  Found {businessProfiles.length} business{businessProfiles.length !== 1 ? 'es' : ''}
+                  Found {sortedBusinessProfiles.length} business{sortedBusinessProfiles.length !== 1 ? 'es' : ''}
                 </Text>
                 <TouchableOpacity style={styles.newSearchButton} onPress={handleNewSearch}>
                   <Ionicons name="refresh-outline" size={16} color={colors.primaryBlue} />
                   <Text style={styles.newSearchButtonText}>New Search</Text>
                 </TouchableOpacity>
               </View>
-              
-              {businessProfiles.map((business) => (
+
+              {sortedBusinessProfiles.map((business) => (
                 <BusinessCard
                   key={business.business_id}
                   business={business}

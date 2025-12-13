@@ -371,11 +371,14 @@ const BusinessMessagesScreen = ({ navigation, isBusinessMode, onBusinessModeTogg
     }
   };
 
-  const handleMessagePress = (conversationId) => {
+  const handleMessagePress = useCallback((conversationId) => {
     // Find the selected conversation
     const conversation = allConversations.find(conv => conv.id === conversationId);
 
-    if (!conversation) return;
+    if (!conversation) {
+      console.log('Conversation not found:', conversationId);
+      return;
+    }
 
     // Mark conversation as read
     markConversationAsRead(conversationId);
@@ -394,7 +397,7 @@ const BusinessMessagesScreen = ({ navigation, isBusinessMode, onBusinessModeTogg
       leadStage: conversation.leadStage,
       leadNotes: conversation.leadNotes,
     });
-  };
+  }, [allConversations, userBusinessProfile, navigation]);
 
   const markConversationAsRead = async (conversationId) => {
     try {
@@ -611,7 +614,7 @@ const BusinessMessagesScreen = ({ navigation, isBusinessMode, onBusinessModeTogg
         </TouchableOpacity>
       </View>
     );
-  }, [typingIndicators, activeTab, handleArchiveConversation, handlePinConversation, handleOpenStatusSelector]);
+  }, [typingIndicators, activeTab, handleMessagePress, handleArchiveConversation, handlePinConversation, handleOpenStatusSelector]);
 
   const getEmptyStateContent = () => {
     switch (activeTab) {

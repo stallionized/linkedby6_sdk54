@@ -114,7 +114,16 @@
       "Bash(\"$LOCALAPPDATA/Android/Sdk/platform-tools/adb.exe\" shell \"dumpsys activity activities | grep -i ''mCurrentFocus\\|mFocusedActivity\\|sixdegrees\\|linkedbysix''\")",
       "Bash(timeout /t 15)",
       "Bash(\"$LOCALAPPDATA/Android/Sdk/platform-tools/adb.exe\" shell am start -n com.linkedbysix.app/.MainActivity)",
-      "Bash(\"$LOCALAPPDATA/Android/Sdk/platform-tools/adb.exe\" shell \"dumpsys activity activities | grep -i ''mCurrentFocus\\|mFocusedActivity\\|linkedbysix''\")"
+      "Bash(\"$LOCALAPPDATA/Android/Sdk/platform-tools/adb.exe\" shell \"dumpsys activity activities | grep -i ''mCurrentFocus\\|mFocusedActivity\\|linkedbysix''\")",
+      "Bash(timeout /t 60)",
+      "Bash(copy c:linkby6mobile_prodassetsicon.png c:linkby6mobile_prodassetsnotification-icon.png)",
+      "Bash(npx tsc:*)",
+      "Bash(\"$LOCALAPPDATA/Android/Sdk/platform-tools/adb.exe\" install -r \"C:\\linkby6mobile_prod\\android\\app\\build\\outputs\\apk\\debug\\app-debug.apk\")",
+      "Bash(\"$LOCALAPPDATA/Android/Sdk/platform-tools/adb.exe\" logcat -d -t 50)",
+      "Bash(\"$LOCALAPPDATA/Android/Sdk/platform-tools/adb.exe\" logcat -d -t 100)",
+      "Bash(where:*)",
+      "Bash(pip:*)",
+      "Bash(npx --version)"
     ]
   },
   "enableAllProjectMcpServers": true,

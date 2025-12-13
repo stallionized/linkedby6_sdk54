@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { StyleSheet, StatusBar, Platform, View, Text } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
@@ -11,6 +11,7 @@ import './global.css';
 
 // Import only essential components first to test
 import { AuthProvider, useAuth } from './Auth';
+import PushNotificationService from './services/PushNotificationService';
 import SplashScreen from './SplashScreen';
 import ConsumerLandingPageNew from './ConsumerLandingPageNew';
 import ADPPageNew from './ADPPageNew';
@@ -34,6 +35,7 @@ import BusinessConnectionsScreen from './BusinessConnectionsScreen';
 import BusinessMessagesScreen from './BusinessMessagesScreen';
 import AccessCodeManagementScreen from './AccessCodeManagementScreen';
 import WaitlistManagementScreen from './WaitlistManagementScreen';
+import ConversationScreen from './ConversationScreen';
 import Toast from 'react-native-toast-message';
 import ActivityTracker from './components/ActivityTracker';
 
@@ -56,8 +58,56 @@ function AppNavigator() {
   const [isBusinessMode, setIsBusinessMode] = useState(false);
 
   // Log auth state changes
-  React.useEffect(() => {
+  useEffect(() => {
     console.log("🔄 Auth state changed - user:", user ? 'logged in' : 'logged out');
+  }, [user]);
+
+  // Initialize push notifications when user is authenticated
+  useEffect(() => {
+    const initializePushNotifications = async () => {
+      if (user && user.id) {
+        try {
+          console.log("📱 Initializing push notifications for user:", user.id);
+          await PushNotificationService.initialize({
+            onNotificationReceived: (notification) => {
+              console.log("📬 Notification received in app:", notification);
+              const data = notification.request.content.data;
+
+              // Handle incoming call notifications
+              if (data?.type === 'incoming_call') {
+                console.log("📞 Incoming call notification:", data);
+                // The WebRTCService will handle the call via Supabase Realtime
+                // This notification is just for when the app is in background
+              }
+            },
+            onNotificationResponse: (response, data) => {
+              console.log("👆 Notification tapped:", data);
+
+              // Navigate based on notification type
+              if (data?.type === 'incoming_call' && data?.callId) {
+                // Navigate to the call screen or handle the call
+                console.log("📞 User tapped incoming call notification");
+              } else if (data?.type === 'message') {
+                // Navigate to messages
+                navigationRef.current?.navigate('Messages');
+              }
+            },
+          });
+          console.log("✅ Push notifications initialized successfully");
+        } catch (error) {
+          console.error("❌ Failed to initialize push notifications:", error);
+        }
+      }
+    };
+
+    initializePushNotifications();
+
+    // Cleanup on unmount or user logout
+    return () => {
+      if (!user) {
+        PushNotificationService.destroy();
+      }
+    };
   }, [user]);
 
   // Show loading screen while checking authentication
@@ -105,6 +155,7 @@ function AppNavigator() {
       <Stack.Screen name="Search" component={SearchScreen} />
       <Stack.Screen name="Connections" component={ConnectionsScreen} />
       <Stack.Screen name="Messages" component={MessagesScreen} />
+      <Stack.Screen name="Conversation" component={ConversationScreen} />
       <Stack.Screen name="ProjectQueue" component={ProjectQueueScreen} />
       <Stack.Screen name="RecommendedBusinesses" component={RecommendedBusinessesScreen} />
       <Stack.Screen name="BusinessPricing">

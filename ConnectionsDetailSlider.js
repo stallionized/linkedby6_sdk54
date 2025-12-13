@@ -71,7 +71,10 @@ const ConnectionsDetailSlider = ({
       };
     }
 
-    const degrees = record.degrees;
+    // The Business→Owner/Employee relationship shouldn't count as a degree
+    // Degrees should represent person-to-person hops only
+    const rawDegrees = record.degrees;
+    const degrees = Math.max(1, rawDegrees - 1);
     const path = record.path;
     
     let businessNode = null;
@@ -116,105 +119,79 @@ const ConnectionsDetailSlider = ({
       };
     }
     
-    // Create a map of all nodes by identity for easy lookup
-    const nodesByIdentity = {};
-    
-    // Add business and current user nodes to the map
-    if (businessNode && businessNode.identity) {
-      const key = `${businessNode.identity.low}-${businessNode.identity.high || 0}`;
-      nodesByIdentity[key] = businessNode;
-    }
-    
-    if (currentUserNode && currentUserNode.identity) {
-      const key = `${currentUserNode.identity.low}-${currentUserNode.identity.high || 0}`;
-      nodesByIdentity[key] = currentUserNode;
-    }
-    
-    // Process all segments to identify intermediate nodes
+    // Build ordered nodes by following the segment chain sequentially
+    // This ensures nodes appear in the correct path order
+    let orderedNodes = [];
+
     if (path.segments && path.segments.length > 0) {
-      for (const segment of path.segments) {
-        // Process start node
-        if (segment.start) {
-          const startId = `${segment.start.identity.low}-${segment.start.identity.high || 0}`;
-          
-          if (!nodesByIdentity[startId]) {
-            const isPerson = segment.start.labels && segment.start.labels.includes('Person');
-            const isBusiness = segment.start.labels && segment.start.labels.includes('Business');
-            
-            if (isPerson) {
-              const node = {
-                id: `person-${segment.start.properties?.phone || 'unknown'}`,
-                type: 'Person',
-                name: segment.start.properties?.full_name || 'Unknown Person',
-                phone: segment.start.properties?.phone || null,
-                identity: segment.start.identity
-              };
-              
-              nodesByIdentity[startId] = node;
-              intermediateNodes.push(node);
-            } else if (isBusiness && !businessNode) {
-              businessNode = {
-                id: `business-${segment.start.properties?.business_id || 'unknown'}`,
-                type: 'Business',
-                name: businessName || segment.start.properties?.name || 'Business',
-                phone: null,
-                identity: segment.start.identity
-              };
-              nodesByIdentity[startId] = businessNode;
-            }
-          }
+      // Start with path.start (first node in the path)
+      const startNode = path.start;
+      if (startNode) {
+        const isPerson = startNode.labels?.includes('Person');
+        const isBusiness = startNode.labels?.includes('Business');
+
+        // Check if this is the current user or business, use our pre-identified nodes if so
+        const startIdentity = `${startNode.identity.low}-${startNode.identity.high || 0}`;
+        const businessIdentity = businessNode?.identity ? `${businessNode.identity.low}-${businessNode.identity.high || 0}` : null;
+        const userIdentity = currentUserNode?.identity ? `${currentUserNode.identity.low}-${currentUserNode.identity.high || 0}` : null;
+
+        if (businessIdentity && startIdentity === businessIdentity) {
+          orderedNodes.push(businessNode);
+        } else if (userIdentity && startIdentity === userIdentity) {
+          orderedNodes.push(currentUserNode);
+        } else {
+          orderedNodes.push({
+            id: isBusiness ? `business-${startNode.properties?.business_id || 'unknown'}` : `person-${startNode.properties?.phone || 'unknown'}`,
+            type: isBusiness ? 'Business' : 'Person',
+            name: isBusiness ? (businessName || startNode.properties?.name || 'Business') : (startNode.properties?.full_name || 'Unknown Person'),
+            phone: startNode.properties?.phone || null,
+            identity: startNode.identity
+          });
         }
-        
-        // Process end node
+      }
+
+      // Follow each segment's end node (which is the next node in the path)
+      for (const segment of path.segments) {
         if (segment.end) {
-          const endId = `${segment.end.identity.low}-${segment.end.identity.high || 0}`;
-          
-          if (!nodesByIdentity[endId]) {
-            const isPerson = segment.end.labels && segment.end.labels.includes('Person');
-            const isBusiness = segment.end.labels && segment.end.labels.includes('Business');
-            
-            if (isPerson) {
-              const node = {
-                id: `person-${segment.end.properties?.phone || 'unknown'}`,
-                type: 'Person',
-                name: segment.end.properties?.full_name || 'Unknown Person',
-                phone: segment.end.properties?.phone || null,
-                identity: segment.end.identity
-              };
-              
-              nodesByIdentity[endId] = node;
-              intermediateNodes.push(node);
-            } else if (isBusiness && !businessNode) {
-              businessNode = {
-                id: `business-${segment.end.properties?.business_id || 'unknown'}`,
-                type: 'Business',
-                name: businessName || segment.end.properties?.name || 'Business',
-                phone: null,
-                identity: segment.end.identity
-              };
-              nodesByIdentity[endId] = businessNode;
-            }
+          const isPerson = segment.end.labels?.includes('Person');
+          const isBusiness = segment.end.labels?.includes('Business');
+
+          // Check if this is the current user or business node
+          const endIdentity = `${segment.end.identity.low}-${segment.end.identity.high || 0}`;
+          const businessIdentity = businessNode?.identity ? `${businessNode.identity.low}-${businessNode.identity.high || 0}` : null;
+          const userIdentity = currentUserNode?.identity ? `${currentUserNode.identity.low}-${currentUserNode.identity.high || 0}` : null;
+
+          if (businessIdentity && endIdentity === businessIdentity) {
+            orderedNodes.push(businessNode);
+          } else if (userIdentity && endIdentity === userIdentity) {
+            orderedNodes.push(currentUserNode);
+          } else {
+            orderedNodes.push({
+              id: isBusiness ? `business-${segment.end.properties?.business_id || 'unknown'}` : `person-${segment.end.properties?.phone || 'unknown'}`,
+              type: isBusiness ? 'Business' : 'Person',
+              name: isBusiness ? (businessName || segment.end.properties?.name || 'Business') : (segment.end.properties?.full_name || 'Unknown Person'),
+              phone: segment.end.properties?.phone || null,
+              identity: segment.end.identity
+            });
           }
         }
       }
+    } else {
+      // Fallback if no segments: just add business and user nodes
+      if (businessNode) {
+        orderedNodes.push(businessNode);
+      }
+      if (currentUserNode) {
+        orderedNodes.push(currentUserNode);
+      }
     }
-    
-    // Order nodes correctly - business at top, then intermediates, then current user
-    let orderedNodes = [];
-    
-    // Start with the business node
-    if (businessNode) {
-      orderedNodes.push(businessNode);
+
+    // Reverse the order so Business is on the left and current user is on the right
+    // Neo4j returns path starting from current user, but we want Business → ... → User
+    if (orderedNodes.length > 0 && orderedNodes[0]?.type !== 'Business') {
+      orderedNodes.reverse();
     }
-    
-    // Add intermediate nodes
-    orderedNodes = orderedNodes.concat(intermediateNodes);
-    
-    // Add the current user node last
-    if (currentUserNode) {
-      orderedNodes.push(currentUserNode);
-    }
-    
+
     // Remove duplicates
     const uniqueNodes = [];
     const seen = new Set();
@@ -243,12 +220,14 @@ const ConnectionsDetailSlider = ({
       <View style={styles.nodeWrapper}>
         <View style={[
           styles.nodeCircle,
-          node.type === 'Business' && styles.businessNodeCircle
+          node.type === 'Business' && styles.businessNodeCircle,
+          // Owner/employee is the Person node right after the Business (index 1)
+          index === 1 && node.type === 'Person' && styles.ownerEmployeeNodeCircle
         ]}>
-          <Ionicons 
-            name={node.type === 'Business' ? 'business' : 'person'} 
-            size={24} 
-            color={colors.cardWhite} 
+          <Ionicons
+            name={node.type === 'Business' ? 'business' : 'person'}
+            size={24}
+            color={colors.cardWhite}
           />
         </View>
         
@@ -273,7 +252,13 @@ const ConnectionsDetailSlider = ({
             <Text style={styles.startBadgeText}>Target Business</Text>
           </View>
         )}
-        
+
+        {index === 1 && node.type === 'Person' && (
+          <View style={styles.ownerEmployeeBadge}>
+            <Text style={styles.ownerEmployeeBadgeText}>Represents Business</Text>
+          </View>
+        )}
+
         {index === connectionData.nodes.length - 1 && (
           <View style={styles.endBadge}>
             <Text style={styles.endBadgeText}>You</Text>
@@ -498,6 +483,9 @@ const styles = StyleSheet.create({
   businessNodeCircle: {
     backgroundColor: colors.businessOrange,
   },
+  ownerEmployeeNodeCircle: {
+    backgroundColor: '#4CAF50', // Green for owner/employee who represents the business
+  },
   connectionLine: {
     width: 3,
     height: 40,
@@ -555,6 +543,18 @@ const styles = StyleSheet.create({
     alignSelf: 'flex-start',
   },
   endBadgeText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: colors.cardWhite,
+  },
+  ownerEmployeeBadge: {
+    backgroundColor: '#4CAF50', // Green to match the node color
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    alignSelf: 'flex-start',
+  },
+  ownerEmployeeBadgeText: {
     fontSize: 12,
     fontWeight: '600',
     color: colors.cardWhite,

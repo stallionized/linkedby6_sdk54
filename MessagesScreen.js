@@ -365,15 +365,19 @@ const MessagesScreen = ({ navigation }) => {
     }
   };
 
-  const handleMessagePress = (conversationId) => {
-    // Find the selected conversation
-    const selectedConversation = conversations.find(conv => conv.id === conversationId);
-    
-    if (!selectedConversation) return;
+  const handleMessagePress = useCallback((conversationId) => {
+    // Find the selected conversation in both active and archived lists
+    const selectedConversation = conversations.find(conv => conv.id === conversationId) ||
+                                  archivedConversations.find(conv => conv.id === conversationId);
+
+    if (!selectedConversation) {
+      console.log('Conversation not found:', conversationId);
+      return;
+    }
 
     // Mark conversation as read
     markConversationAsRead(conversationId);
-    
+
     // Navigate to conversation screen with real data
     navigation.navigate('Conversation', {
       conversationId: conversationId,
@@ -386,7 +390,7 @@ const MessagesScreen = ({ navigation }) => {
       isBusinessMode: isBusinessMode,
       userBusinessProfile: userBusinessProfile,
     });
-  };
+  }, [conversations, archivedConversations, isBusinessMode, userBusinessProfile, navigation]);
 
   const markConversationAsRead = async (conversationId) => {
     try {
@@ -520,7 +524,7 @@ const MessagesScreen = ({ navigation }) => {
         isArchived={isArchived}
       />
     );
-  }, [typingIndicators, activeTab, isBusinessMode, handleArchiveConversation, handlePinConversation, handleDeleteConversation]);
+  }, [typingIndicators, activeTab, isBusinessMode, handleMessagePress, handleArchiveConversation, handlePinConversation, handleDeleteConversation]);
 
   const renderEmptyState = () => (
     <View style={styles.emptyState}>

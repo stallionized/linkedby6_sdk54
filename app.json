@@ -25,9 +25,14 @@
       },
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
-        "UIBackgroundModes": ["fetch"],
+        "UIBackgroundModes": [
+          "fetch",
+          "voip",
+          "remote-notification"
+        ],
         "NSContactsUsageDescription": "LinkedBySix needs access to your contacts to help you connect with people you know.",
-        "NSLocationWhenInUseUsageDescription": "LinkedBySix uses your location to find businesses and services near you."
+        "NSLocationWhenInUseUsageDescription": "LinkedBySix uses your location to find businesses and services near you.",
+        "NSMicrophoneUsageDescription": "LinkedBySix needs microphone access for voice calls with businesses."
       }
     },
     "android": {
@@ -44,7 +49,11 @@
         "READ_CONTACTS",
         "RECEIVE_BOOT_COMPLETED",
         "ACCESS_FINE_LOCATION",
-        "ACCESS_COARSE_LOCATION"
+        "ACCESS_COARSE_LOCATION",
+        "RECORD_AUDIO",
+        "MODIFY_AUDIO_SETTINGS",
+        "BLUETOOTH",
+        "BLUETOOTH_CONNECT"
       ]
     },
     "plugins": [
@@ -63,6 +72,24 @@
         "expo-location",
         {
           "locationWhenInUsePermission": "LinkedBySix uses your location to find businesses and services near you."
+        }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "minSdkVersion": 24
+          }
+        }
+      ],
+      "@config-plugins/react-native-webrtc",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/notification-icon.png",
+          "color": "#0A66C2",
+          "androidMode": "default",
+          "androidCollapsedTitle": "LinkedBySix"
         }
       ]
     ],

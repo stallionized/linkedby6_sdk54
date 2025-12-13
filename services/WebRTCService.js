@@ -1,5 +1,36 @@
 import { supabase } from '../supabaseClient';
 import * as Device from 'expo-device';
+import {
+  RTCPeerConnection,
+  RTCSessionDescription,
+  RTCIceCandidate,
+  mediaDevices,
+} from 'react-native-webrtc';
+import InCallManager from 'react-native-incall-manager';
+
+// ICE Server configuration with STUN and TURN servers
+const ICE_SERVERS = {
+  iceServers: [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' },
+    { urls: 'stun:openrelay.metered.ca:80' },
+    {
+      urls: 'turn:openrelay.metered.ca:80',
+      username: 'openrelayproject',
+      credential: 'openrelayproject',
+    },
+    {
+      urls: 'turn:openrelay.metered.ca:443',
+      username: 'openrelayproject',
+      credential: 'openrelayproject',
+    },
+    {
+      urls: 'turn:openrelay.metered.ca:443?transport=tcp',
+      username: 'openrelayproject',
+      credential: 'openrelayproject',
+    },
+  ],
+};
 
 class WebRTCService {
   constructor() {
@@ -12,6 +43,14 @@ class WebRTCService {
     this.signalingChannel = null;
     this.isInitialized = false;
     this.initializationPromise = null;
+
+    // WebRTC specific
+    this.peerConnection = null;
+    this.localStream = null;
+    this.remoteStream = null;
+    this.isMuted = false;
+    this.isSpeakerOn = false;
+    this.pendingIceCandidates = [];
   }
 
   async initialize(userId, callStateCallback, remoteStreamCallback, localStreamCallback) {
@@ -78,18 +117,18 @@ class WebRTCService {
 
     if (!this.isInitialized || !this.currentUserId) {
       console.log('WebRTC service not initialized, attempting auto-initialization...');
-      
+
       // Try to get current user and auto-initialize
       try {
         const { supabase } = require('../supabaseClient');
         const { data: { user }, error } = await supabase.auth.getUser();
-        
+
         if (error || !user) {
           throw new Error('WebRTC service not initialized. Please ensure user is logged in.');
         }
-        
+
         console.log('Auto-initializing WebRTC service for user:', user.id);
-        
+
         // Auto-initialize with minimal callbacks
         await this.initialize(
           user.id,
@@ -97,7 +136,7 @@ class WebRTCService {
           this.remoteStreamCallback || ((stream) => console.log('Remote stream:', stream)),
           this.localStreamCallback || ((stream) => console.log('Local stream:', stream))
         );
-        
+
         console.log('WebRTC service auto-initialized successfully');
       } catch (autoInitError) {
         console.error('Failed to auto-initialize WebRTC service:', autoInitError);
@@ -109,6 +148,232 @@ class WebRTCService {
       throw new Error('WebRTC service has no user ID. Please ensure user is logged in.');
     }
   }
+
+  // ==================== WebRTC Peer Connection ====================
+
+  async createPeerConnection() {
+    try {
+      console.log('Creating RTCPeerConnection...');
+
+      this.peerConnection = new RTCPeerConnection(ICE_SERVERS);
+
+      // Handle ICE candidates
+      this.peerConnection.onicecandidate = (event) => {
+        if (event.candidate) {
+          console.log('New ICE candidate:', event.candidate.candidate.substring(0, 50) + '...');
+          this.sendIceCandidate(event.candidate);
+        }
+      };
+
+      // Handle ICE connection state changes
+      this.peerConnection.oniceconnectionstatechange = () => {
+        console.log('ICE connection state:', this.peerConnection.iceConnectionState);
+
+        switch (this.peerConnection.iceConnectionState) {
+          case 'connected':
+          case 'completed':
+            console.log('ICE connection established successfully');
+            break;
+          case 'failed':
+            console.error('ICE connection failed');
+            this.handleConnectionFailure();
+            break;
+          case 'disconnected':
+            console.warn('ICE connection disconnected');
+            break;
+          case 'closed':
+            console.log('ICE connection closed');
+            break;
+        }
+      };
+
+      // Handle remote stream
+      this.peerConnection.ontrack = (event) => {
+        console.log('Remote track received:', event.track.kind);
+        if (event.streams && event.streams[0]) {
+          this.remoteStream = event.streams[0];
+          if (this.remoteStreamCallback) {
+            this.remoteStreamCallback(this.remoteStream);
+          }
+        }
+      };
+
+      // Handle connection state
+      this.peerConnection.onconnectionstatechange = () => {
+        console.log('Connection state:', this.peerConnection.connectionState);
+      };
+
+      console.log('RTCPeerConnection created successfully');
+      return this.peerConnection;
+    } catch (error) {
+      console.error('Failed to create peer connection:', error);
+      throw error;
+    }
+  }
+
+  async getLocalStream() {
+    try {
+      console.log('Requesting local audio stream...');
+
+      const constraints = {
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+        video: false,
+      };
+
+      this.localStream = await mediaDevices.getUserMedia(constraints);
+      console.log('Local audio stream obtained successfully');
+
+      if (this.localStreamCallback) {
+        this.localStreamCallback(this.localStream);
+      }
+
+      return this.localStream;
+    } catch (error) {
+      console.error('Failed to get local stream:', error);
+      throw new Error('Microphone access denied. Please enable microphone permissions.');
+    }
+  }
+
+  async addLocalStreamToPeerConnection() {
+    if (!this.peerConnection) {
+      throw new Error('Peer connection not initialized');
+    }
+
+    if (!this.localStream) {
+      await this.getLocalStream();
+    }
+
+    console.log('Adding local tracks to peer connection...');
+    this.localStream.getTracks().forEach((track) => {
+      console.log('Adding track:', track.kind);
+      this.peerConnection.addTrack(track, this.localStream);
+    });
+  }
+
+  async createOffer() {
+    try {
+      console.log('Creating SDP offer...');
+
+      const offerOptions = {
+        offerToReceiveAudio: true,
+        offerToReceiveVideo: false,
+      };
+
+      const offer = await this.peerConnection.createOffer(offerOptions);
+      await this.peerConnection.setLocalDescription(offer);
+
+      console.log('SDP offer created and set as local description');
+      return offer;
+    } catch (error) {
+      console.error('Failed to create offer:', error);
+      throw error;
+    }
+  }
+
+  async createAnswer() {
+    try {
+      console.log('Creating SDP answer...');
+
+      const answer = await this.peerConnection.createAnswer();
+      await this.peerConnection.setLocalDescription(answer);
+
+      console.log('SDP answer created and set as local description');
+      return answer;
+    } catch (error) {
+      console.error('Failed to create answer:', error);
+      throw error;
+    }
+  }
+
+  async setRemoteDescription(sdp) {
+    try {
+      console.log('Setting remote description...');
+      const sessionDescription = new RTCSessionDescription(sdp);
+      await this.peerConnection.setRemoteDescription(sessionDescription);
+      console.log('Remote description set successfully');
+
+      // Process any pending ICE candidates
+      await this.processPendingIceCandidates();
+    } catch (error) {
+      console.error('Failed to set remote description:', error);
+      throw error;
+    }
+  }
+
+  async addIceCandidate(candidate) {
+    try {
+      if (!this.peerConnection) {
+        console.log('Peer connection not ready, queueing ICE candidate');
+        this.pendingIceCandidates.push(candidate);
+        return;
+      }
+
+      if (!this.peerConnection.remoteDescription) {
+        console.log('Remote description not set, queueing ICE candidate');
+        this.pendingIceCandidates.push(candidate);
+        return;
+      }
+
+      const iceCandidate = new RTCIceCandidate(candidate);
+      await this.peerConnection.addIceCandidate(iceCandidate);
+      console.log('ICE candidate added successfully');
+    } catch (error) {
+      console.error('Failed to add ICE candidate:', error);
+    }
+  }
+
+  async processPendingIceCandidates() {
+    console.log(`Processing ${this.pendingIceCandidates.length} pending ICE candidates`);
+
+    for (const candidate of this.pendingIceCandidates) {
+      try {
+        const iceCandidate = new RTCIceCandidate(candidate);
+        await this.peerConnection.addIceCandidate(iceCandidate);
+      } catch (error) {
+        console.error('Failed to add pending ICE candidate:', error);
+      }
+    }
+
+    this.pendingIceCandidates = [];
+  }
+
+  async sendIceCandidate(candidate) {
+    if (!this.currentCall) {
+      console.warn('No current call, cannot send ICE candidate');
+      return;
+    }
+
+    const receiverId = this.currentCall.isOutgoing
+      ? (this.currentCall.receiver_id || this.currentCall.receiverId)
+      : this.currentCall.caller_id;
+
+    if (receiverId) {
+      await this.sendSignalingMessage(
+        receiverId,
+        this.currentCall.id,
+        'ice-candidate',
+        {
+          candidate: candidate.candidate,
+          sdpMLineIndex: candidate.sdpMLineIndex,
+          sdpMid: candidate.sdpMid,
+        }
+      );
+    }
+  }
+
+  handleConnectionFailure() {
+    console.error('WebRTC connection failed');
+    if (this.callStateCallback) {
+      this.callStateCallback('error', { error: 'Connection failed' });
+    }
+    this.cleanupCall();
+  }
+
+  // ==================== Supabase Subscriptions ====================
 
   async setupCallSubscription() {
     return new Promise((resolve, reject) => {
@@ -222,6 +487,8 @@ class WebRTCService {
     });
   }
 
+  // ==================== Call Flow ====================
+
   async startCall(receiverId, receiverName, callType = 'user') {
     try {
       // Ensure service is properly initialized before starting call
@@ -229,7 +496,17 @@ class WebRTCService {
 
       console.log(`Starting ${callType} call to ${receiverName} (${receiverId})`);
 
-      // Create call record in database with proper ID handling
+      // Start InCallManager for audio routing
+      InCallManager.start({ media: 'audio' });
+      InCallManager.setKeepScreenOn(true);
+      InCallManager.setSpeakerphoneOn(false);
+
+      // Create peer connection and get local stream
+      await this.createPeerConnection();
+      await this.getLocalStream();
+      await this.addLocalStreamToPeerConnection();
+
+      // Create call record in database
       const callRecord = {
         caller_id: this.currentUserId,
         call_status: 'ringing',
@@ -265,19 +542,26 @@ class WebRTCService {
         this.callStateCallback('calling', this.currentCall);
       }
 
-      // Send initial signaling message (only for user-to-user calls)
-      // For business calls, we don't send signaling messages since there's no specific user to signal
+      // Create and send SDP offer
+      const offer = await this.createOffer();
+
+      // Send signaling message with SDP offer
       if (callType === 'user') {
         await this.sendSignalingMessage(receiverId, callData.id, 'offer', {
           callerId: this.currentUserId,
-          callerName: 'User', // You might want to get this from user profile
+          callerName: 'User',
           receiverName,
           callType,
           deviceInfo: Device.modelName,
+          sdp: {
+            type: offer.type,
+            sdp: offer.sdp,
+          },
         });
       } else {
-        // For business calls, we just log that the call was initiated
-        console.log(`Business call initiated to ${receiverName} - no signaling needed`);
+        // For business calls, we need to find the business owner
+        console.log(`Business call initiated to ${receiverName}`);
+        // TODO: Get business owner ID and send offer to them
       }
 
       return callData.id;
@@ -290,11 +574,13 @@ class WebRTCService {
         hint: error.hint,
         stack: error.stack
       });
-      
+
+      this.cleanupCall();
+
       if (this.callStateCallback) {
         this.callStateCallback('error', { error: error.message });
       }
-      
+
       // Provide user-friendly error messages
       if (error.message && error.message.includes('relation "voice_calls" does not exist')) {
         throw new Error('Voice calling database tables are not set up. Please contact support.');
@@ -312,10 +598,28 @@ class WebRTCService {
     try {
       console.log(`Accepting call ${callId}`);
 
+      // Start InCallManager
+      InCallManager.start({ media: 'audio' });
+      InCallManager.setKeepScreenOn(true);
+      InCallManager.setSpeakerphoneOn(false);
+
+      // Create peer connection and get local stream
+      await this.createPeerConnection();
+      await this.getLocalStream();
+      await this.addLocalStreamToPeerConnection();
+
+      // If we have a pending offer, set it as remote description
+      if (this.currentCall && this.currentCall.pendingOffer) {
+        await this.setRemoteDescription(this.currentCall.pendingOffer);
+      }
+
+      // Create and send answer
+      const answer = await this.createAnswer();
+
       // Update call status to accepted
       const { error: updateError } = await supabase
         .from('voice_calls')
-        .update({ 
+        .update({
           call_status: 'active',
           answered_at: new Date().toISOString(),
         })
@@ -325,8 +629,8 @@ class WebRTCService {
         throw updateError;
       }
 
-      // Send acceptance signaling message only for user-to-user calls
-      if (this.currentCall && this.currentCall.callType === 'user' && this.currentCall.caller_id) {
+      // Send acceptance signaling message with SDP answer
+      if (this.currentCall && this.currentCall.caller_id) {
         await this.sendSignalingMessage(
           this.currentCall.caller_id,
           callId,
@@ -334,10 +638,12 @@ class WebRTCService {
           {
             accepted: true,
             deviceInfo: Device.modelName,
+            sdp: {
+              type: answer.type,
+              sdp: answer.sdp,
+            },
           }
         );
-      } else if (this.currentCall && this.currentCall.callType === 'business') {
-        console.log('Business call accepted - no signaling message needed');
       }
 
       // Update call state
@@ -346,6 +652,7 @@ class WebRTCService {
       }
     } catch (error) {
       console.error('Failed to accept call:', error);
+      this.cleanupCall();
       if (this.callStateCallback) {
         this.callStateCallback('error', { error: error.message });
       }
@@ -362,7 +669,7 @@ class WebRTCService {
       // Update call status to declined
       const { error: updateError } = await supabase
         .from('voice_calls')
-        .update({ 
+        .update({
           call_status: 'declined',
           ended_at: new Date().toISOString(),
         })
@@ -372,8 +679,8 @@ class WebRTCService {
         throw updateError;
       }
 
-      // Send decline signaling message only for user-to-user calls
-      if (callToDecline && callToDecline.callType === 'user' && callToDecline.caller_id) {
+      // Send decline signaling message
+      if (callToDecline && callToDecline.caller_id) {
         await this.sendSignalingMessage(
           callToDecline.caller_id,
           callId,
@@ -382,12 +689,9 @@ class WebRTCService {
             declined: true,
           }
         );
-      } else if (callToDecline && callToDecline.callType === 'business') {
-        console.log('Business call declined - no signaling message needed');
       }
 
-      // Clear current call
-      this.currentCall = null;
+      this.cleanupCall();
 
       // Update call state
       if (this.callStateCallback) {
@@ -395,10 +699,8 @@ class WebRTCService {
       }
     } catch (error) {
       console.error('Failed to decline call:', error);
-      // Ensure currentCall is cleared even if there's an error
-      this.currentCall = null;
-      
-      // Still notify about call end even if there was an error
+      this.cleanupCall();
+
       if (this.callStateCallback) {
         this.callStateCallback('ended', { reason: 'error', error: error.message });
       }
@@ -420,7 +722,7 @@ class WebRTCService {
       // Update call status to ended
       const { error: updateError } = await supabase
         .from('voice_calls')
-        .update({ 
+        .update({
           call_status: 'ended',
           ended_at: new Date().toISOString(),
         })
@@ -430,29 +732,23 @@ class WebRTCService {
         console.error('Failed to update call status:', updateError);
       }
 
-      // Send end call signaling message only for user-to-user calls
-      // For business calls, we don't send signaling messages since there's no specific user to signal
-      if (callToEnd.callType === 'user') {
-        const otherUserId = callToEnd.isOutgoing 
-          ? callToEnd.receiver_id 
-          : callToEnd.caller_id;
+      // Send end call signaling message
+      const otherUserId = callToEnd.isOutgoing
+        ? (callToEnd.receiver_id || callToEnd.receiverId)
+        : callToEnd.caller_id;
 
-        if (otherUserId) {
-          await this.sendSignalingMessage(
-            otherUserId,
-            callToEnd.id,
-            'call-end',
-            {
-              endedBy: this.currentUserId,
-            }
-          );
-        }
-      } else {
-        console.log('Business call ended - no signaling message needed');
+      if (otherUserId) {
+        await this.sendSignalingMessage(
+          otherUserId,
+          callToEnd.id,
+          'call-end',
+          {
+            endedBy: this.currentUserId,
+          }
+        );
       }
 
-      // Clear current call first
-      this.currentCall = null;
+      this.cleanupCall();
 
       // Update call state
       if (this.callStateCallback) {
@@ -460,15 +756,51 @@ class WebRTCService {
       }
     } catch (error) {
       console.error('Failed to end call:', error);
-      // Ensure currentCall is cleared even if there's an error
-      this.currentCall = null;
-      
-      // Still notify about call end even if there was an error
+      this.cleanupCall();
+
       if (this.callStateCallback) {
         this.callStateCallback('ended', { reason: 'error', error: error.message });
       }
     }
   }
+
+  cleanupCall() {
+    console.log('Cleaning up call resources...');
+
+    // Stop InCallManager
+    InCallManager.stop();
+
+    // Close peer connection
+    if (this.peerConnection) {
+      this.peerConnection.close();
+      this.peerConnection = null;
+    }
+
+    // Stop local stream tracks
+    if (this.localStream) {
+      this.localStream.getTracks().forEach((track) => {
+        track.stop();
+      });
+      this.localStream = null;
+    }
+
+    // Clear remote stream
+    this.remoteStream = null;
+
+    // Clear current call
+    this.currentCall = null;
+
+    // Reset audio state
+    this.isMuted = false;
+    this.isSpeakerOn = false;
+
+    // Clear pending ICE candidates
+    this.pendingIceCandidates = [];
+
+    console.log('Call resources cleaned up');
+  }
+
+  // ==================== Signaling ====================
 
   async sendSignalingMessage(receiverId, callId, messageType, data) {
     try {
@@ -494,7 +826,7 @@ class WebRTCService {
 
   handleIncomingCall(callData) {
     console.log('Handling incoming call:', callData);
-    
+
     this.currentCall = {
       ...callData,
       isOutgoing: false,
@@ -507,52 +839,82 @@ class WebRTCService {
 
   handleCallStatusUpdate(callData) {
     console.log('Call status updated:', callData);
-    
+
     if (this.currentCall && this.currentCall.id === callData.id) {
       this.currentCall = { ...this.currentCall, ...callData };
-      
+
+      if (callData.call_status === 'ended' || callData.call_status === 'declined') {
+        this.cleanupCall();
+      }
+
       if (this.callStateCallback) {
         this.callStateCallback(callData.call_status, this.currentCall);
       }
     }
   }
 
-  handleSignalingMessage(signalData) {
-    console.log('Handling signaling message:', signalData);
-    
+  async handleSignalingMessage(signalData) {
+    console.log('Handling signaling message:', signalData.signal_type);
+
     switch (signalData.signal_type) {
       case 'offer':
-        // Handle incoming call offer
+        // Handle incoming call offer with SDP
+        if (signalData.call_data && signalData.call_data.sdp) {
+          if (this.currentCall) {
+            this.currentCall.pendingOffer = signalData.call_data.sdp;
+          }
+        }
         break;
+
       case 'answer':
-        // Handle call answer
+        // Handle call answer with SDP
+        if (signalData.call_data && signalData.call_data.sdp) {
+          await this.setRemoteDescription(signalData.call_data.sdp);
+        }
         if (this.callStateCallback) {
           this.callStateCallback('active', this.currentCall);
         }
         break;
+
+      case 'ice-candidate':
+        // Handle ICE candidate
+        if (signalData.call_data) {
+          await this.addIceCandidate(signalData.call_data);
+        }
+        break;
+
       case 'call-decline':
         // Handle call decline
+        this.cleanupCall();
         if (this.callStateCallback) {
           this.callStateCallback('ended', { reason: 'declined' });
         }
-        this.currentCall = null;
         break;
+
       case 'call-end':
         // Handle call end
+        this.cleanupCall();
         if (this.callStateCallback) {
           this.callStateCallback('ended', { reason: 'remote_ended' });
         }
-        this.currentCall = null;
         break;
     }
   }
 
+  // ==================== Audio Controls ====================
+
   async toggleMute() {
     try {
-      // For now, we'll just log this - in a full implementation with native audio,
-      // you'd pause/resume recording or adjust audio levels
-      console.log('Toggle mute requested');
-      return true;
+      if (this.localStream) {
+        const audioTrack = this.localStream.getAudioTracks()[0];
+        if (audioTrack) {
+          audioTrack.enabled = !audioTrack.enabled;
+          this.isMuted = !audioTrack.enabled;
+          console.log('Mute toggled:', this.isMuted);
+          return this.isMuted;
+        }
+      }
+      return false;
     } catch (error) {
       console.error('Failed to toggle mute:', error);
       return false;
@@ -561,18 +923,31 @@ class WebRTCService {
 
   async toggleSpeaker() {
     try {
-      // For now, we'll just log this - in a full implementation with native audio,
-      // you'd toggle between speaker and earpiece audio output
-      console.log('Toggle speaker requested');
-      return true;
+      this.isSpeakerOn = !this.isSpeakerOn;
+      InCallManager.setSpeakerphoneOn(this.isSpeakerOn);
+      console.log('Speaker toggled:', this.isSpeakerOn);
+      return this.isSpeakerOn;
     } catch (error) {
       console.error('Failed to toggle speaker:', error);
       return false;
     }
   }
 
+  getMuteState() {
+    return this.isMuted;
+  }
+
+  getSpeakerState() {
+    return this.isSpeakerOn;
+  }
+
+  // ==================== Cleanup ====================
+
   destroy() {
     try {
+      // Clean up any active call
+      this.cleanupCall();
+
       // Unsubscribe from channels
       if (this.callChannel) {
         supabase.removeChannel(this.callChannel);
@@ -585,7 +960,6 @@ class WebRTCService {
       }
 
       // Reset state
-      this.currentCall = null;
       this.currentUserId = null;
       this.callStateCallback = null;
       this.remoteStreamCallback = null;
