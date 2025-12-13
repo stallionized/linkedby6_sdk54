@@ -1,22 +1,22 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   FlatList,
   TouchableOpacity,
-  TextInput,
   Alert,
   Dimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons, MaterialIcons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { useAuth } from './Auth';
 import { supabase } from './supabaseClient';
 import MobileHeader from './MobileHeader';
 import MobileBottomNavigation from './MobileBottomNavigation';
+import SwipeableConversationItem from './components/SwipeableConversationItem';
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 
@@ -38,10 +38,12 @@ const colors = {
 const MessagesScreen = ({ navigation }) => {
   const { user } = useAuth();
   const [conversations, setConversations] = useState([]);
+  const [archivedConversations, setArchivedConversations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [isBusinessMode, setIsBusinessMode] = useState(false);
   const [userBusinessProfile, setUserBusinessProfile] = useState(null);
-  
+  const [activeTab, setActiveTab] = useState('active'); // 'active' or 'archived'
+
   // Typing indicator states
   const [typingIndicators, setTypingIndicators] = useState({}); // conversationId -> isTyping
   const typingChannelsRef = useRef({});
@@ -104,6 +106,11 @@ const MessagesScreen = ({ navigation }) => {
           last_message_at,
           user_last_read_at,
           business_last_read_at,
+          user_status,
+          business_status,
+          is_closed,
+          is_pinned_user,
+          is_pinned_business,
           created_at,
           updated_at
         `)
@@ -170,31 +177,50 @@ const MessagesScreen = ({ navigation }) => {
         const businessProfile = businessProfileMap[conv.business_id];
 
         // Determine if conversation has unread messages
-        const lastReadTime = isBusinessMode 
-          ? conv.business_last_read_at 
+        const lastReadTime = isBusinessMode
+          ? conv.business_last_read_at
           : conv.user_last_read_at;
-        
-        const hasUnread = conv.last_message_at && 
+
+        const hasUnread = conv.last_message_at &&
           (!lastReadTime || new Date(conv.last_message_at) > new Date(lastReadTime));
+
+        // Determine status and pinned state based on mode
+        const status = isBusinessMode ? conv.business_status : conv.user_status;
+        const isPinned = isBusinessMode ? conv.is_pinned_business : conv.is_pinned_user;
 
         return {
           id: conv.id,
           conversationId: conv.id,
-          sender: isBusinessMode 
+          sender: isBusinessMode
             ? (userProfile?.full_name || 'Unknown User')
             : (businessProfile?.business_name || 'Unknown Business'),
           message: conv.last_message_text || 'No messages yet',
           timestamp: conv.last_message_at ? new Date(conv.last_message_at) : new Date(conv.created_at),
           unread: hasUnread,
-          avatar: isBusinessMode 
-            ? userProfile?.profile_image_url 
+          avatar: isBusinessMode
+            ? userProfile?.profile_image_url
             : businessProfile?.image_url,
           otherPartyId: isBusinessMode ? conv.user_id : conv.business_id,
           isBusinessConversation: !isBusinessMode,
+          status: status || 'active',
+          isPinned: isPinned || false,
+          isClosed: conv.is_closed || false,
         };
       });
 
-      setConversations(transformedConversations);
+      // Separate active and archived conversations
+      const activeConvs = transformedConversations.filter(c => c.status !== 'archived' && c.status !== 'deleted');
+      const archivedConvs = transformedConversations.filter(c => c.status === 'archived');
+
+      // Sort active conversations: pinned first, then by timestamp
+      activeConvs.sort((a, b) => {
+        if (a.isPinned && !b.isPinned) return -1;
+        if (!a.isPinned && b.isPinned) return 1;
+        return b.timestamp - a.timestamp;
+      });
+
+      setConversations(activeConvs);
+      setArchivedConversations(archivedConvs);
     } catch (error) {
       console.error('Error loading conversations:', error);
       Alert.alert('Error', 'Failed to load conversations');
@@ -365,15 +391,15 @@ const MessagesScreen = ({ navigation }) => {
   const markConversationAsRead = async (conversationId) => {
     try {
       const updateField = isBusinessMode ? 'business_last_read_at' : 'user_last_read_at';
-      
+
       await supabase
         .from('conversations')
         .update({ [updateField]: new Date().toISOString() })
         .eq('id', conversationId);
 
       // Update local state
-      setConversations(prev => 
-        prev.map(conv => 
+      setConversations(prev =>
+        prev.map(conv =>
           conv.id === conversationId ? { ...conv, unread: false } : conv
         )
       );
@@ -381,6 +407,94 @@ const MessagesScreen = ({ navigation }) => {
       console.error('Error marking conversation as read:', error);
     }
   };
+
+  const handleArchiveConversation = useCallback(async (conversationId) => {
+    try {
+      const statusField = isBusinessMode ? 'business_status' : 'user_status';
+      const isCurrentlyArchived = activeTab === 'archived';
+      const newStatus = isCurrentlyArchived ? 'active' : 'archived';
+
+      const { error } = await supabase
+        .from('conversations')
+        .update({ [statusField]: newStatus })
+        .eq('id', conversationId);
+
+      if (error) throw error;
+
+      // Reload conversations to reflect changes
+      loadConversations();
+    } catch (error) {
+      console.error('Error archiving conversation:', error);
+      Alert.alert('Error', 'Failed to update conversation');
+    }
+  }, [isBusinessMode, activeTab]);
+
+  const handlePinConversation = useCallback(async (conversationId) => {
+    try {
+      const pinField = isBusinessMode ? 'is_pinned_business' : 'is_pinned_user';
+      const conversation = conversations.find(c => c.id === conversationId) ||
+                          archivedConversations.find(c => c.id === conversationId);
+      const newPinnedState = !conversation?.isPinned;
+
+      const { error } = await supabase
+        .from('conversations')
+        .update({ [pinField]: newPinnedState })
+        .eq('id', conversationId);
+
+      if (error) throw error;
+
+      // Update local state
+      if (activeTab === 'active') {
+        setConversations(prev => {
+          const updated = prev.map(conv =>
+            conv.id === conversationId ? { ...conv, isPinned: newPinnedState } : conv
+          );
+          // Re-sort: pinned first
+          return updated.sort((a, b) => {
+            if (a.isPinned && !b.isPinned) return -1;
+            if (!a.isPinned && b.isPinned) return 1;
+            return b.timestamp - a.timestamp;
+          });
+        });
+      }
+    } catch (error) {
+      console.error('Error pinning conversation:', error);
+      Alert.alert('Error', 'Failed to update conversation');
+    }
+  }, [isBusinessMode, conversations, archivedConversations, activeTab]);
+
+  const handleDeleteConversation = useCallback(async (conversationId) => {
+    Alert.alert(
+      'Delete Conversation',
+      'Are you sure you want to delete this conversation? This will hide it from your inbox.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              // For consumers, we soft delete (mark as 'deleted')
+              // This keeps the conversation accessible to the business
+              const { error } = await supabase
+                .from('conversations')
+                .update({ user_status: 'deleted' })
+                .eq('id', conversationId);
+
+              if (error) throw error;
+
+              // Remove from local state
+              setConversations(prev => prev.filter(c => c.id !== conversationId));
+              setArchivedConversations(prev => prev.filter(c => c.id !== conversationId));
+            } catch (error) {
+              console.error('Error deleting conversation:', error);
+              Alert.alert('Error', 'Failed to delete conversation');
+            }
+          },
+        },
+      ]
+    );
+  }, []);
 
   const TypingIndicator = () => (
     <View style={styles.typingIndicator}>
@@ -390,134 +504,165 @@ const MessagesScreen = ({ navigation }) => {
     </View>
   );
 
-  const renderMessage = ({ item }) => {
+  const renderMessage = useCallback(({ item }) => {
     const isTyping = typingIndicators[item.id];
-    
+    const isArchived = activeTab === 'archived';
+
     return (
-      <TouchableOpacity
-        style={[styles.messageItem, item.unread && styles.unreadMessage]}
-        onPress={() => handleMessagePress(item.id)}
-      >
-        <View style={styles.messageHeader}>
-          <View style={styles.avatarContainer}>
-            <View style={styles.avatar}>
-              <Text style={styles.avatarText}>
-                {item.sender.split(' ').map(n => n[0]).join('')}
-              </Text>
-            </View>
-          </View>
-          <View style={styles.messageContent}>
-            <View style={styles.messageTop}>
-              <Text style={[styles.senderName, item.unread && styles.unreadText]}>
-                {item.sender}
-              </Text>
-              <Text style={styles.timestamp}>
-                {formatTimestamp(item.timestamp)}
-              </Text>
-            </View>
-            {isTyping ? (
-              <View style={styles.typingContainer}>
-                <TypingIndicator />
-                <Text style={styles.typingText}>typing...</Text>
-              </View>
-            ) : (
-              <Text style={styles.messageText} numberOfLines={2}>
-                {item.message}
-              </Text>
-            )}
-          </View>
-          {item.unread && <View style={styles.unreadIndicator} />}
-        </View>
-      </TouchableOpacity>
+      <SwipeableConversationItem
+        item={item}
+        onPress={handleMessagePress}
+        onArchive={handleArchiveConversation}
+        onPin={handlePinConversation}
+        onDelete={!isBusinessMode ? handleDeleteConversation : undefined}
+        isTyping={isTyping}
+        formatTimestamp={formatTimestamp}
+        isArchived={isArchived}
+      />
     );
-  };
+  }, [typingIndicators, activeTab, isBusinessMode, handleArchiveConversation, handlePinConversation, handleDeleteConversation]);
 
   const renderEmptyState = () => (
     <View style={styles.emptyState}>
-      <MaterialIcons name="message" size={64} color={colors.textLight} />
-      <Text style={styles.emptyStateTitle}>No Messages Yet</Text>
-      <Text style={styles.emptyStateText}>
-        Start connecting with businesses and professionals to begin conversations.
+      <MaterialIcons
+        name={activeTab === 'archived' ? 'archive' : 'message'}
+        size={64}
+        color={colors.textLight}
+      />
+      <Text style={styles.emptyStateTitle}>
+        {activeTab === 'archived' ? 'No Archived Messages' : 'No Messages Yet'}
       </Text>
-      <TouchableOpacity
-        style={styles.exploreButton}
-        onPress={() => navigation.navigate('Search')}
-      >
-        <Text style={styles.exploreButtonText}>Explore Businesses</Text>
-      </TouchableOpacity>
+      <Text style={styles.emptyStateText}>
+        {activeTab === 'archived'
+          ? 'Archived conversations will appear here. Swipe left on a conversation to archive it.'
+          : 'Start connecting with businesses and professionals to begin conversations.'}
+      </Text>
+      {activeTab !== 'archived' && (
+        <TouchableOpacity
+          style={styles.exploreButton}
+          onPress={() => navigation.navigate('Search')}
+        >
+          <Text style={styles.exploreButtonText}>Explore Businesses</Text>
+        </TouchableOpacity>
+      )}
     </View>
   );
 
+  // Get the current list based on active tab
+  const currentConversations = activeTab === 'active' ? conversations : archivedConversations;
+
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
-      <StatusBar style="dark" />
-      <MobileHeader
-        navigation={navigation}
-        title="Messages"
-        showBackButton={false}
-      />
-      
-      <View style={styles.content}>
-        {/* Business Mode Toggle */}
-        {userBusinessProfile && (
-          <View style={styles.modeToggleContainer}>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <SafeAreaView style={styles.container} edges={['top']}>
+        <StatusBar style="dark" />
+        <MobileHeader
+          navigation={navigation}
+          title="Messages"
+          showBackButton={false}
+        />
+
+        <View style={styles.content}>
+          {/* Business Mode Toggle */}
+          {userBusinessProfile && (
+            <View style={styles.modeToggleContainer}>
+              <TouchableOpacity
+                style={[styles.modeToggle, !isBusinessMode && styles.activeModeToggle]}
+                onPress={() => !isBusinessMode || toggleBusinessMode()}
+              >
+                <Ionicons
+                  name="person"
+                  size={16}
+                  color={!isBusinessMode ? colors.cardWhite : colors.textMedium}
+                />
+                <Text style={[
+                  styles.modeToggleText,
+                  !isBusinessMode && styles.activeModeToggleText
+                ]}>
+                  Personal
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.modeToggle, isBusinessMode && styles.activeModeToggle]}
+                onPress={() => isBusinessMode || toggleBusinessMode()}
+              >
+                <Ionicons
+                  name="business"
+                  size={16}
+                  color={isBusinessMode ? colors.cardWhite : colors.textMedium}
+                />
+                <Text style={[
+                  styles.modeToggleText,
+                  isBusinessMode && styles.activeModeToggleText
+                ]}>
+                  Business
+                </Text>
+              </TouchableOpacity>
+            </View>
+          )}
+
+          {/* Active / Archived Tabs */}
+          <View style={styles.tabContainer}>
             <TouchableOpacity
-              style={[styles.modeToggle, !isBusinessMode && styles.activeModeToggle]}
-              onPress={() => !isBusinessMode || toggleBusinessMode()}
+              style={[styles.tab, activeTab === 'active' && styles.activeTab]}
+              onPress={() => setActiveTab('active')}
             >
-              <Ionicons 
-                name="person" 
-                size={16} 
-                color={!isBusinessMode ? colors.cardWhite : colors.textMedium} 
-              />
-              <Text style={[
-                styles.modeToggleText, 
-                !isBusinessMode && styles.activeModeToggleText
-              ]}>
-                Personal
+              <Text style={[styles.tabText, activeTab === 'active' && styles.activeTabText]}>
+                Active
               </Text>
+              {conversations.length > 0 && (
+                <View style={[styles.tabBadge, activeTab === 'active' && styles.activeTabBadge]}>
+                  <Text style={[styles.tabBadgeText, activeTab === 'active' && styles.activeTabBadgeText]}>
+                    {conversations.length}
+                  </Text>
+                </View>
+              )}
             </TouchableOpacity>
             <TouchableOpacity
-              style={[styles.modeToggle, isBusinessMode && styles.activeModeToggle]}
-              onPress={() => isBusinessMode || toggleBusinessMode()}
+              style={[styles.tab, activeTab === 'archived' && styles.activeTab]}
+              onPress={() => setActiveTab('archived')}
             >
-              <Ionicons 
-                name="business" 
-                size={16} 
-                color={isBusinessMode ? colors.cardWhite : colors.textMedium} 
+              <Ionicons
+                name="archive-outline"
+                size={16}
+                color={activeTab === 'archived' ? colors.primaryBlue : colors.textMedium}
+                style={{ marginRight: 4 }}
               />
-              <Text style={[
-                styles.modeToggleText, 
-                isBusinessMode && styles.activeModeToggleText
-              ]}>
-                Business
+              <Text style={[styles.tabText, activeTab === 'archived' && styles.activeTabText]}>
+                Archived
               </Text>
+              {archivedConversations.length > 0 && (
+                <View style={[styles.tabBadge, activeTab === 'archived' && styles.activeTabBadge]}>
+                  <Text style={[styles.tabBadgeText, activeTab === 'archived' && styles.activeTabBadgeText]}>
+                    {archivedConversations.length}
+                  </Text>
+                </View>
+              )}
             </TouchableOpacity>
           </View>
-        )}
 
-        {loading ? (
-          <View style={styles.loadingContainer}>
-            <Text style={styles.loadingText}>Loading conversations...</Text>
-          </View>
-        ) : conversations.length > 0 ? (
-          <FlatList
-            data={conversations}
-            renderItem={renderMessage}
-            keyExtractor={(item) => item.id}
-            style={styles.messagesList}
-            showsVerticalScrollIndicator={false}
-            contentContainerStyle={styles.messagesContainer}
-            refreshing={loading}
-            onRefresh={loadConversations}
-          />
-        ) : (
-          renderEmptyState()
-        )}
-      </View>
+          {loading ? (
+            <View style={styles.loadingContainer}>
+              <Text style={styles.loadingText}>Loading conversations...</Text>
+            </View>
+          ) : currentConversations.length > 0 ? (
+            <FlatList
+              data={currentConversations}
+              renderItem={renderMessage}
+              keyExtractor={(item) => item.id}
+              style={styles.messagesList}
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={styles.messagesContainer}
+              refreshing={loading}
+              onRefresh={loadConversations}
+            />
+          ) : (
+            renderEmptyState()
+          )}
+        </View>
 
-      <MobileBottomNavigation navigation={navigation} activeRoute="Messages" />
-    </SafeAreaView>
+        <MobileBottomNavigation navigation={navigation} activeRoute="Messages" />
+      </SafeAreaView>
+    </GestureHandlerRootView>
   );
 };
 
@@ -534,7 +679,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   messagesContainer: {
-    padding: 16,
+    paddingVertical: 8,
   },
   messageItem: {
     backgroundColor: colors.cardWhite,
@@ -711,6 +856,57 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: colors.primaryBlue,
     fontStyle: 'italic',
+  },
+  tabContainer: {
+    flexDirection: 'row',
+    backgroundColor: colors.cardWhite,
+    marginHorizontal: 16,
+    marginBottom: 8,
+    borderRadius: 8,
+    padding: 4,
+    elevation: 1,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 1,
+  },
+  tab: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 6,
+  },
+  activeTab: {
+    backgroundColor: colors.primaryBlue + '15',
+  },
+  tabText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.textMedium,
+  },
+  activeTabText: {
+    color: colors.primaryBlue,
+  },
+  tabBadge: {
+    backgroundColor: colors.textLight,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 10,
+    marginLeft: 6,
+  },
+  activeTabBadge: {
+    backgroundColor: colors.primaryBlue,
+  },
+  tabBadgeText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: colors.cardWhite,
+  },
+  activeTabBadgeText: {
+    color: colors.cardWhite,
   },
 });
 

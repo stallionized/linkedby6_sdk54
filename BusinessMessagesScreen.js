@@ -1,22 +1,25 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   FlatList,
   TouchableOpacity,
-  TextInput,
   Alert,
   Dimensions,
+  ScrollView,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons, MaterialIcons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { useAuth } from './Auth';
 import { supabase } from './supabaseClient';
 import MobileHeader from './MobileHeader';
 import MobileBusinessNavigation from './MobileBusinessNavigation';
+import SwipeableConversationItem from './components/SwipeableConversationItem';
+import LeadStatusBadge, { getActiveLeadStages, getClosedLeadStages } from './components/LeadStatusBadge';
+import LeadStatusSelector from './components/LeadStatusSelector';
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 
@@ -35,12 +38,24 @@ const colors = {
   error: '#EF4444',
 };
 
+// Lead tab definitions for business inbox
+const LEAD_TABS = [
+  { key: 'all', label: 'All Active', icon: 'chatbubbles-outline' },
+  { key: 'new', label: 'New Leads', icon: 'sparkles-outline' },
+  { key: 'in_progress', label: 'In Progress', icon: 'trending-up-outline' },
+  { key: 'closed', label: 'Closed', icon: 'checkmark-done-outline' },
+  { key: 'archived', label: 'Archived', icon: 'archive-outline' },
+];
+
 const BusinessMessagesScreen = ({ navigation, isBusinessMode, onBusinessModeToggle }) => {
   const { user } = useAuth();
-  const [conversations, setConversations] = useState([]);
+  const [allConversations, setAllConversations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [userBusinessProfile, setUserBusinessProfile] = useState(null);
-  
+  const [activeTab, setActiveTab] = useState('all');
+  const [showStatusSelector, setShowStatusSelector] = useState(false);
+  const [selectedConversation, setSelectedConversation] = useState(null);
+
   // Typing indicator states
   const [typingIndicators, setTypingIndicators] = useState({}); // conversationId -> isTyping
   const typingChannelsRef = useRef({});
@@ -60,13 +75,13 @@ const BusinessMessagesScreen = ({ navigation, isBusinessMode, onBusinessModeTogg
 
   // Set up typing indicator channels when conversations change
   useEffect(() => {
-    if (conversations.length > 0) {
+    if (allConversations.length > 0) {
       setupTypingIndicatorChannels();
     }
     return () => {
       cleanupTypingChannels();
     };
-  }, [conversations, user, isBusinessMode, userBusinessProfile]);
+  }, [allConversations, user, isBusinessMode, userBusinessProfile]);
 
   const checkUserBusinessProfile = async () => {
     if (!user) return;
@@ -92,7 +107,7 @@ const BusinessMessagesScreen = ({ navigation, isBusinessMode, onBusinessModeTogg
 
     setLoading(true);
     try {
-      // First, get conversations without the problematic foreign key references
+      // First, get conversations with lead tracking fields
       let query = supabase
         .from('conversations')
         .select(`
@@ -103,18 +118,26 @@ const BusinessMessagesScreen = ({ navigation, isBusinessMode, onBusinessModeTogg
           last_message_at,
           user_last_read_at,
           business_last_read_at,
+          user_status,
+          business_status,
+          lead_stage,
+          lead_stage_updated_at,
+          lead_outcome_reason,
+          lead_notes,
+          is_closed,
+          is_pinned_user,
+          is_pinned_business,
           created_at,
           updated_at
         `)
         .order('last_message_at', { ascending: false, nullsFirst: false })
         .order('created_at', { ascending: false });
 
-      // Filter based on current mode
-      if (isBusinessMode && userBusinessProfile) {
-        // In business mode: show conversations where this user's business is involved
+      // Filter based on current mode - business mode for this screen
+      if (userBusinessProfile) {
         query = query.eq('business_id', userBusinessProfile.business_id);
       } else {
-        // In user mode: show conversations where this user is the user participant
+        // Fallback to user mode if no business profile
         query = query.eq('user_id', user.id);
       }
 
@@ -168,32 +191,40 @@ const BusinessMessagesScreen = ({ navigation, isBusinessMode, onBusinessModeTogg
         const userProfile = userProfileMap[conv.user_id];
         const businessProfile = businessProfileMap[conv.business_id];
 
-        // Determine if conversation has unread messages
-        const lastReadTime = isBusinessMode 
-          ? conv.business_last_read_at 
-          : conv.user_last_read_at;
-        
-        const hasUnread = conv.last_message_at && 
+        // Determine if conversation has unread messages (business perspective)
+        const lastReadTime = conv.business_last_read_at;
+        const hasUnread = conv.last_message_at &&
           (!lastReadTime || new Date(conv.last_message_at) > new Date(lastReadTime));
 
         return {
           id: conv.id,
           conversationId: conv.id,
-          sender: isBusinessMode 
-            ? (userProfile?.full_name || 'Unknown User')
-            : (businessProfile?.business_name || 'Unknown Business'),
+          sender: userProfile?.full_name || 'Unknown User',
           message: conv.last_message_text || 'No messages yet',
           timestamp: conv.last_message_at ? new Date(conv.last_message_at) : new Date(conv.created_at),
           unread: hasUnread,
-          avatar: isBusinessMode 
-            ? userProfile?.profile_image_url 
-            : businessProfile?.image_url,
-          otherPartyId: isBusinessMode ? conv.user_id : conv.business_id,
-          isBusinessConversation: !isBusinessMode,
+          avatar: userProfile?.profile_image_url,
+          otherPartyId: conv.user_id,
+          isBusinessConversation: true,
+          // Lead tracking fields
+          status: conv.business_status || 'active',
+          leadStage: conv.lead_stage || 'new',
+          leadStageUpdatedAt: conv.lead_stage_updated_at,
+          leadOutcomeReason: conv.lead_outcome_reason,
+          leadNotes: conv.lead_notes,
+          isPinned: conv.is_pinned_business || false,
+          isClosed: conv.is_closed || false,
         };
       });
 
-      setConversations(transformedConversations);
+      // Sort: pinned first, then by timestamp
+      transformedConversations.sort((a, b) => {
+        if (a.isPinned && !b.isPinned) return -1;
+        if (!a.isPinned && b.isPinned) return 1;
+        return b.timestamp - a.timestamp;
+      });
+
+      setAllConversations(transformedConversations);
     } catch (error) {
       console.error('Error loading conversations:', error);
       Alert.alert('Error', 'Failed to load conversations');
@@ -248,12 +279,12 @@ const BusinessMessagesScreen = ({ navigation, isBusinessMode, onBusinessModeTogg
   };
 
   const setupTypingIndicatorChannels = () => {
-    if (!user || conversations.length === 0) return;
+    if (!user || allConversations.length === 0) return;
 
     // Clean up existing channels first
     cleanupTypingChannels();
 
-    conversations.forEach(conversation => {
+    allConversations.forEach(conversation => {
       const conversationId = conversation.id;
       const channelName = `typing_${conversationId}`;
       
@@ -342,39 +373,39 @@ const BusinessMessagesScreen = ({ navigation, isBusinessMode, onBusinessModeTogg
 
   const handleMessagePress = (conversationId) => {
     // Find the selected conversation
-    const selectedConversation = conversations.find(conv => conv.id === conversationId);
-    
-    if (!selectedConversation) return;
+    const conversation = allConversations.find(conv => conv.id === conversationId);
+
+    if (!conversation) return;
 
     // Mark conversation as read
     markConversationAsRead(conversationId);
-    
+
     // Navigate to conversation screen with real data
     navigation.navigate('Conversation', {
       conversationId: conversationId,
       contact: {
-        id: selectedConversation.otherPartyId,
-        name: selectedConversation.sender,
+        id: conversation.otherPartyId,
+        name: conversation.sender,
         lastSeen: 'last seen recently',
-        isBusinessConversation: selectedConversation.isBusinessConversation,
+        isBusinessConversation: true,
       },
-      isBusinessMode: isBusinessMode,
+      isBusinessMode: true,
       userBusinessProfile: userBusinessProfile,
+      leadStage: conversation.leadStage,
+      leadNotes: conversation.leadNotes,
     });
   };
 
   const markConversationAsRead = async (conversationId) => {
     try {
-      const updateField = isBusinessMode ? 'business_last_read_at' : 'user_last_read_at';
-      
       await supabase
         .from('conversations')
-        .update({ [updateField]: new Date().toISOString() })
+        .update({ business_last_read_at: new Date().toISOString() })
         .eq('id', conversationId);
 
       // Update local state
-      setConversations(prev => 
-        prev.map(conv => 
+      setAllConversations(prev =>
+        prev.map(conv =>
           conv.id === conversationId ? { ...conv, unread: false } : conv
         )
       );
@@ -382,6 +413,171 @@ const BusinessMessagesScreen = ({ navigation, isBusinessMode, onBusinessModeTogg
       console.error('Error marking conversation as read:', error);
     }
   };
+
+  // Archive/Restore conversation
+  const handleArchiveConversation = useCallback(async (conversationId) => {
+    try {
+      const conversation = allConversations.find(c => c.id === conversationId);
+      const newStatus = conversation?.status === 'archived' ? 'active' : 'archived';
+
+      const { error } = await supabase
+        .from('conversations')
+        .update({ business_status: newStatus })
+        .eq('id', conversationId);
+
+      if (error) throw error;
+      loadConversations();
+    } catch (error) {
+      console.error('Error archiving conversation:', error);
+      Alert.alert('Error', 'Failed to update conversation');
+    }
+  }, [allConversations]);
+
+  // Pin/Unpin conversation
+  const handlePinConversation = useCallback(async (conversationId) => {
+    try {
+      const conversation = allConversations.find(c => c.id === conversationId);
+      const newPinnedState = !conversation?.isPinned;
+
+      const { error } = await supabase
+        .from('conversations')
+        .update({ is_pinned_business: newPinnedState })
+        .eq('id', conversationId);
+
+      if (error) throw error;
+
+      // Update local state and re-sort
+      setAllConversations(prev => {
+        const updated = prev.map(conv =>
+          conv.id === conversationId ? { ...conv, isPinned: newPinnedState } : conv
+        );
+        return updated.sort((a, b) => {
+          if (a.isPinned && !b.isPinned) return -1;
+          if (!a.isPinned && b.isPinned) return 1;
+          return b.timestamp - a.timestamp;
+        });
+      });
+    } catch (error) {
+      console.error('Error pinning conversation:', error);
+      Alert.alert('Error', 'Failed to update conversation');
+    }
+  }, [allConversations]);
+
+  // Open lead status selector
+  const handleOpenStatusSelector = useCallback((conversationId) => {
+    const conversation = allConversations.find(c => c.id === conversationId);
+    if (conversation) {
+      setSelectedConversation(conversation);
+      setShowStatusSelector(true);
+    }
+  }, [allConversations]);
+
+  // Update lead stage
+  const handleLeadStageChange = async (newStage, reason, notes) => {
+    if (!selectedConversation) return;
+
+    try {
+      const updateData = {
+        lead_stage: newStage,
+        lead_stage_updated_at: new Date().toISOString(),
+      };
+
+      if (reason) {
+        updateData.lead_outcome_reason = reason;
+      }
+      if (notes !== undefined) {
+        updateData.lead_notes = notes;
+      }
+
+      const { error } = await supabase
+        .from('conversations')
+        .update(updateData)
+        .eq('id', selectedConversation.id);
+
+      if (error) throw error;
+
+      // Log to history
+      await supabase.from('conversation_lead_history').insert({
+        conversation_id: selectedConversation.id,
+        previous_stage: selectedConversation.leadStage,
+        new_stage: newStage,
+        changed_by: user.id,
+        reason: reason || 'manual change',
+        notes: notes,
+      });
+
+      loadConversations();
+    } catch (error) {
+      console.error('Error updating lead stage:', error);
+      Alert.alert('Error', 'Failed to update lead status');
+    }
+  };
+
+  // Save lead notes
+  const handleSaveNotes = async (notes) => {
+    if (!selectedConversation) return;
+
+    try {
+      const { error } = await supabase
+        .from('conversations')
+        .update({ lead_notes: notes })
+        .eq('id', selectedConversation.id);
+
+      if (error) throw error;
+
+      setAllConversations(prev =>
+        prev.map(conv =>
+          conv.id === selectedConversation.id ? { ...conv, leadNotes: notes } : conv
+        )
+      );
+    } catch (error) {
+      console.error('Error saving notes:', error);
+      Alert.alert('Error', 'Failed to save notes');
+    }
+  };
+
+  // Filter conversations based on active tab
+  const getFilteredConversations = useCallback(() => {
+    const activeStages = getActiveLeadStages();
+    const closedStages = getClosedLeadStages();
+
+    switch (activeTab) {
+      case 'all':
+        return allConversations.filter(c => c.status !== 'archived');
+      case 'new':
+        return allConversations.filter(c => c.leadStage === 'new' && c.status !== 'archived');
+      case 'in_progress':
+        return allConversations.filter(c =>
+          activeStages.includes(c.leadStage) && c.leadStage !== 'new' && c.status !== 'archived'
+        );
+      case 'closed':
+        return allConversations.filter(c =>
+          closedStages.includes(c.leadStage) && c.status !== 'archived'
+        );
+      case 'archived':
+        return allConversations.filter(c => c.status === 'archived');
+      default:
+        return allConversations.filter(c => c.status !== 'archived');
+    }
+  }, [allConversations, activeTab]);
+
+  // Get tab counts for badges
+  const getTabCounts = useCallback(() => {
+    const activeStages = getActiveLeadStages();
+    const closedStages = getClosedLeadStages();
+
+    return {
+      all: allConversations.filter(c => c.status !== 'archived').length,
+      new: allConversations.filter(c => c.leadStage === 'new' && c.status !== 'archived').length,
+      in_progress: allConversations.filter(c =>
+        activeStages.includes(c.leadStage) && c.leadStage !== 'new' && c.status !== 'archived'
+      ).length,
+      closed: allConversations.filter(c =>
+        closedStages.includes(c.leadStage) && c.status !== 'archived'
+      ).length,
+      archived: allConversations.filter(c => c.status === 'archived').length,
+    };
+  }, [allConversations]);
 
   const TypingIndicator = () => (
     <View style={styles.typingIndicator}>
@@ -391,136 +587,159 @@ const BusinessMessagesScreen = ({ navigation, isBusinessMode, onBusinessModeTogg
     </View>
   );
 
-  const renderMessage = ({ item }) => {
+  const renderMessage = useCallback(({ item }) => {
     const isTyping = typingIndicators[item.id];
-    
+    const isArchived = activeTab === 'archived';
+
     return (
-      <TouchableOpacity
-        style={[styles.messageItem, item.unread && styles.unreadMessage]}
-        onPress={() => handleMessagePress(item.id)}
-      >
-        <View style={styles.messageHeader}>
-          <View style={styles.avatarContainer}>
-            <View style={styles.avatar}>
-              <Text style={styles.avatarText}>
-                {item.sender.split(' ').map(n => n[0]).join('')}
-              </Text>
-            </View>
-          </View>
-          <View style={styles.messageContent}>
-            <View style={styles.messageTop}>
-              <Text style={[styles.senderName, item.unread && styles.unreadText]}>
-                {item.sender}
-              </Text>
-              <Text style={styles.timestamp}>
-                {formatTimestamp(item.timestamp)}
-              </Text>
-            </View>
-            {isTyping ? (
-              <View style={styles.typingContainer}>
-                <TypingIndicator />
-                <Text style={styles.typingText}>typing...</Text>
-              </View>
-            ) : (
-              <Text style={styles.messageText} numberOfLines={2}>
-                {item.message}
-              </Text>
-            )}
-          </View>
-          {item.unread && <View style={styles.unreadIndicator} />}
-        </View>
-      </TouchableOpacity>
+      <View style={styles.conversationItemContainer}>
+        <SwipeableConversationItem
+          item={item}
+          onPress={handleMessagePress}
+          onArchive={handleArchiveConversation}
+          onPin={handlePinConversation}
+          isTyping={isTyping}
+          formatTimestamp={formatTimestamp}
+          isArchived={isArchived}
+        />
+        {/* Lead Status Badge - positioned over the conversation item */}
+        <TouchableOpacity
+          style={styles.leadBadgeContainer}
+          onPress={() => handleOpenStatusSelector(item.id)}
+        >
+          <LeadStatusBadge stage={item.leadStage} size="small" />
+        </TouchableOpacity>
+      </View>
+    );
+  }, [typingIndicators, activeTab, handleArchiveConversation, handlePinConversation, handleOpenStatusSelector]);
+
+  const getEmptyStateContent = () => {
+    switch (activeTab) {
+      case 'new':
+        return {
+          icon: 'sparkles',
+          title: 'No New Leads',
+          text: 'New leads will appear here when customers reach out to your business.',
+        };
+      case 'in_progress':
+        return {
+          icon: 'trending-up',
+          title: 'No Leads In Progress',
+          text: 'Leads you\'re actively working with will appear here.',
+        };
+      case 'closed':
+        return {
+          icon: 'checkmark-done',
+          title: 'No Closed Leads',
+          text: 'Completed and lost leads will appear here.',
+        };
+      case 'archived':
+        return {
+          icon: 'archive',
+          title: 'No Archived Messages',
+          text: 'Archived conversations will appear here.',
+        };
+      default:
+        return {
+          icon: 'chatbubbles',
+          title: 'No Messages Yet',
+          text: 'When customers message your business, they\'ll appear here as leads.',
+        };
+    }
+  };
+
+  const renderEmptyState = () => {
+    const content = getEmptyStateContent();
+    return (
+      <View style={styles.emptyState}>
+        <Ionicons name={content.icon} size={64} color={colors.textLight} />
+        <Text style={styles.emptyStateTitle}>{content.title}</Text>
+        <Text style={styles.emptyStateText}>{content.text}</Text>
+      </View>
     );
   };
 
-  const renderEmptyState = () => (
-    <View style={styles.emptyState}>
-      <MaterialIcons name="message" size={64} color={colors.textLight} />
-      <Text style={styles.emptyStateTitle}>No Messages Yet</Text>
-      <Text style={styles.emptyStateText}>
-        Start connecting with businesses and professionals to begin conversations.
-      </Text>
-      <TouchableOpacity
-        style={styles.exploreButton}
-        onPress={() => navigation.navigate('Search')}
-      >
-        <Text style={styles.exploreButtonText}>Explore Businesses</Text>
-      </TouchableOpacity>
-    </View>
-  );
+  const filteredConversations = getFilteredConversations();
+  const tabCounts = getTabCounts();
 
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
-      <StatusBar style="dark" />
-      <MobileHeader
-        navigation={navigation}
-        title="Messages"
-        showBackButton={false}
-        isBusinessMode={isBusinessMode}
-        onBusinessModeToggle={onBusinessModeToggle}
-      />
-      
-      <View style={styles.content}>
-        {/* Business Mode Toggle */}
-        {userBusinessProfile && (
-          <View style={styles.modeToggleContainer}>
-            <TouchableOpacity
-              style={[styles.modeToggle, !isBusinessMode && styles.activeModeToggle]}
-              onPress={() => !isBusinessMode || toggleBusinessMode()}
-            >
-              <Ionicons 
-                name="person" 
-                size={16} 
-                color={!isBusinessMode ? colors.cardWhite : colors.textMedium} 
-              />
-              <Text style={[
-                styles.modeToggleText, 
-                !isBusinessMode && styles.activeModeToggleText
-              ]}>
-                Personal
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.modeToggle, isBusinessMode && styles.activeModeToggle]}
-              onPress={() => isBusinessMode || toggleBusinessMode()}
-            >
-              <Ionicons 
-                name="business" 
-                size={16} 
-                color={isBusinessMode ? colors.cardWhite : colors.textMedium} 
-              />
-              <Text style={[
-                styles.modeToggleText, 
-                isBusinessMode && styles.activeModeToggleText
-              ]}>
-                Business
-              </Text>
-            </TouchableOpacity>
-          </View>
-        )}
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <SafeAreaView style={styles.container} edges={['top']}>
+        <StatusBar style="dark" />
+        <MobileHeader
+          navigation={navigation}
+          title="Leads & Messages"
+          showBackButton={false}
+          isBusinessMode={isBusinessMode}
+          onBusinessModeToggle={onBusinessModeToggle}
+        />
 
-        {loading ? (
-          <View style={styles.loadingContainer}>
-            <Text style={styles.loadingText}>Loading conversations...</Text>
-          </View>
-        ) : conversations.length > 0 ? (
-          <FlatList
-            data={conversations}
-            renderItem={renderMessage}
-            keyExtractor={(item) => item.id}
-            style={styles.messagesList}
-            showsVerticalScrollIndicator={false}
-            contentContainerStyle={styles.messagesContainer}
-            refreshing={loading}
-            onRefresh={loadConversations}
-          />
-        ) : (
-          renderEmptyState()
-        )}
-      </View>
+        <View style={styles.content}>
+          {/* Lead-Focused Tab Bar */}
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            style={styles.tabScrollView}
+            contentContainerStyle={styles.tabScrollContent}
+          >
+            {LEAD_TABS.map((tab) => (
+              <TouchableOpacity
+                key={tab.key}
+                style={[styles.leadTab, activeTab === tab.key && styles.activeLeadTab]}
+                onPress={() => setActiveTab(tab.key)}
+              >
+                <Ionicons
+                  name={tab.icon}
+                  size={16}
+                  color={activeTab === tab.key ? colors.primaryBlue : colors.textMedium}
+                />
+                <Text style={[styles.leadTabText, activeTab === tab.key && styles.activeLeadTabText]}>
+                  {tab.label}
+                </Text>
+                {tabCounts[tab.key] > 0 && (
+                  <View style={[styles.leadTabBadge, activeTab === tab.key && styles.activeLeadTabBadge]}>
+                    <Text style={[styles.leadTabBadgeText, activeTab === tab.key && styles.activeLeadTabBadgeText]}>
+                      {tabCounts[tab.key]}
+                    </Text>
+                  </View>
+                )}
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
 
-      <MobileBusinessNavigation navigation={navigation} activeRoute="BusinessMessages" visible={true} />
-    </SafeAreaView>
+          {loading ? (
+            <View style={styles.loadingContainer}>
+              <Text style={styles.loadingText}>Loading conversations...</Text>
+            </View>
+          ) : filteredConversations.length > 0 ? (
+            <FlatList
+              data={filteredConversations}
+              renderItem={renderMessage}
+              keyExtractor={(item) => item.id}
+              style={styles.messagesList}
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={styles.messagesContainer}
+              refreshing={loading}
+              onRefresh={loadConversations}
+            />
+          ) : (
+            renderEmptyState()
+          )}
+        </View>
+
+        <MobileBusinessNavigation navigation={navigation} activeRoute="BusinessMessages" visible={true} />
+
+        {/* Lead Status Selector Modal */}
+        <LeadStatusSelector
+          visible={showStatusSelector}
+          onClose={() => setShowStatusSelector(false)}
+          currentStage={selectedConversation?.leadStage || 'new'}
+          onStageChange={handleLeadStageChange}
+          onSaveNotes={handleSaveNotes}
+          initialNotes={selectedConversation?.leadNotes || ''}
+        />
+      </SafeAreaView>
+    </GestureHandlerRootView>
   );
 };
 
@@ -537,7 +756,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   messagesContainer: {
-    padding: 16,
+    paddingVertical: 8,
   },
   messageItem: {
     backgroundColor: colors.cardWhite,
@@ -714,6 +933,73 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: colors.primaryBlue,
     fontStyle: 'italic',
+  },
+  // Lead tab styles
+  tabScrollView: {
+    maxHeight: 50,
+    marginBottom: 8,
+  },
+  tabScrollContent: {
+    paddingHorizontal: 12,
+    alignItems: 'center',
+  },
+  leadTab: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    marginHorizontal: 4,
+    borderRadius: 20,
+    backgroundColor: colors.cardWhite,
+    elevation: 1,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 1,
+  },
+  activeLeadTab: {
+    backgroundColor: colors.primaryBlue + '15',
+    borderWidth: 1,
+    borderColor: colors.primaryBlue,
+  },
+  leadTabText: {
+    marginLeft: 6,
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.textMedium,
+  },
+  activeLeadTabText: {
+    color: colors.primaryBlue,
+  },
+  leadTabBadge: {
+    backgroundColor: colors.textLight,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 10,
+    marginLeft: 6,
+    minWidth: 20,
+    alignItems: 'center',
+  },
+  activeLeadTabBadge: {
+    backgroundColor: colors.primaryBlue,
+  },
+  leadTabBadgeText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: colors.cardWhite,
+  },
+  activeLeadTabBadgeText: {
+    color: colors.cardWhite,
+  },
+  // Conversation item container for lead badge positioning
+  conversationItemContainer: {
+    position: 'relative',
+  },
+  leadBadgeContainer: {
+    position: 'absolute',
+    top: 12,
+    right: 28,
+    zIndex: 10,
   },
 });
 

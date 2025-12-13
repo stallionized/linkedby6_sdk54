@@ -1333,6 +1333,9 @@ const BusinessProfileSlider = ({ isVisible, onClose, businessId, userId, viewSou
         }
       }
 
+      // Close the slider before navigating
+      onClose();
+
       // Navigate to conversation screen using the navigation hook
       navigationHook.navigate('Conversation', {
         conversationId: conversation.id,

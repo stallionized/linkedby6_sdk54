@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -14,6 +14,8 @@ import {
   KeyboardAvoidingView,
   Dimensions,
   Modal,
+  Keyboard,
+  Animated as RNAnimated,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -80,6 +82,9 @@ const SocialSlider = ({ isVisible, onClose, businessId, currentUserId }) => {
   const [commentLikes, setCommentLikes] = useState({}); // {commentId: {count, liked}}
   const [likingComment, setLikingComment] = useState(null);
 
+  // Keyboard state for input positioning
+  const keyboardHeight = useRef(new RNAnimated.Value(0)).current;
+
   // Pictures state
   const [pictures, setPictures] = useState([]);
   const [picturesLoading, setPicturesLoading] = useState(false);
@@ -103,6 +108,33 @@ const SocialSlider = ({ isVisible, onClose, businessId, currentUserId }) => {
       setExpandedReplies({});
     }
   }, [isVisible]);
+
+  // Keyboard event listeners to move input above keyboard
+  useEffect(() => {
+    const keyboardShowEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const keyboardHideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+
+    const keyboardShowListener = Keyboard.addListener(keyboardShowEvent, (event) => {
+      RNAnimated.timing(keyboardHeight, {
+        toValue: event.endCoordinates.height,
+        duration: Platform.OS === 'ios' ? event.duration : 250,
+        useNativeDriver: false,
+      }).start();
+    });
+
+    const keyboardHideListener = Keyboard.addListener(keyboardHideEvent, (event) => {
+      RNAnimated.timing(keyboardHeight, {
+        toValue: 0,
+        duration: Platform.OS === 'ios' ? event?.duration || 250 : 250,
+        useNativeDriver: false,
+      }).start();
+    });
+
+    return () => {
+      keyboardShowListener.remove();
+      keyboardHideListener.remove();
+    };
+  }, []);
 
   const loadBusinessData = async () => {
     try {
@@ -1003,11 +1035,16 @@ const SocialSlider = ({ isVisible, onClose, businessId, currentUserId }) => {
           )}
         </KeyboardAvoidingView>
 
-        {/* Comment Input - absolutely positioned at bottom */}
+        {/* Comment Input - absolutely positioned at bottom, moves with keyboard */}
         {!loading && (
-          <View style={[
+          <RNAnimated.View style={[
             styles.commentInputContainer,
-            { bottom: insets.bottom > 0 ? insets.bottom : 12 }
+            {
+              bottom: RNAnimated.add(
+                insets.bottom > 0 ? insets.bottom : 12,
+                keyboardHeight
+              )
+            }
           ]}>
             {/* Reply Indicator */}
             {replyingTo && (
@@ -1059,7 +1096,7 @@ const SocialSlider = ({ isVisible, onClose, businessId, currentUserId }) => {
                 )}
               </TouchableOpacity>
             </View>
-          </View>
+          </RNAnimated.View>
         )}
       </Animated.View>
     </GestureDetector>

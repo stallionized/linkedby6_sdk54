@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View,
   Text,
@@ -22,6 +22,8 @@ import { supabase } from './supabaseClient';
 import WebRTCService from './services/WebRTCService';
 import IncomingCallModal from './components/IncomingCallModal';
 import ActiveCallScreen from './components/ActiveCallScreen';
+import LeadStatusBadge from './components/LeadStatusBadge';
+import LeadStatusSelector from './components/LeadStatusSelector';
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 
@@ -75,6 +77,12 @@ const ConversationScreen = ({ navigation, route }) => {
   const [otherUserTyping, setOtherUserTyping] = useState(false);
   const [typingTimeout, setTypingTimeout] = useState(null);
   const typingChannelRef = useRef(null);
+
+  // Lead status states (for business mode)
+  const [leadStage, setLeadStage] = useState(route.params?.leadStage || 'new');
+  const [leadNotes, setLeadNotes] = useState(route.params?.leadNotes || '');
+  const [showLeadStatusSelector, setShowLeadStatusSelector] = useState(false);
+  const isBusinessMode = route.params?.isBusinessMode || false;
 
   // Keyboard event listeners
   useEffect(() => {
@@ -555,6 +563,65 @@ const ConversationScreen = ({ navigation, route }) => {
     // Handle local audio stream
   };
 
+  // Lead status functions (business mode only)
+  const handleLeadStageChange = useCallback(async (newStage, reason, notes) => {
+    if (!route.params?.conversationId) return;
+
+    try {
+      const updateData = {
+        lead_stage: newStage,
+        lead_stage_updated_at: new Date().toISOString(),
+      };
+
+      if (reason) {
+        updateData.lead_outcome_reason = reason;
+      }
+      if (notes !== undefined) {
+        updateData.lead_notes = notes;
+        setLeadNotes(notes);
+      }
+
+      const { error } = await supabase
+        .from('conversations')
+        .update(updateData)
+        .eq('id', route.params.conversationId);
+
+      if (error) throw error;
+
+      // Log to history
+      await supabase.from('conversation_lead_history').insert({
+        conversation_id: route.params.conversationId,
+        previous_stage: leadStage,
+        new_stage: newStage,
+        changed_by: user.id,
+        reason: reason || 'manual change',
+        notes: notes,
+      });
+
+      setLeadStage(newStage);
+    } catch (error) {
+      console.error('Error updating lead stage:', error);
+      Alert.alert('Error', 'Failed to update lead status');
+    }
+  }, [route.params?.conversationId, leadStage, user]);
+
+  const handleSaveLeadNotes = useCallback(async (notes) => {
+    if (!route.params?.conversationId) return;
+
+    try {
+      const { error } = await supabase
+        .from('conversations')
+        .update({ lead_notes: notes })
+        .eq('id', route.params.conversationId);
+
+      if (error) throw error;
+      setLeadNotes(notes);
+    } catch (error) {
+      console.error('Error saving notes:', error);
+      Alert.alert('Error', 'Failed to save notes');
+    }
+  }, [route.params?.conversationId]);
+
   // Voice call functions
   const handlePhoneCall = async () => {
     if (!contact?.id) {
@@ -728,7 +795,23 @@ const ConversationScreen = ({ navigation, route }) => {
           </TouchableOpacity>
         </View>
       </View>
-      
+
+      {/* Lead Status Bar (Business Mode Only) */}
+      {isBusinessMode && (
+        <TouchableOpacity
+          style={styles.leadStatusBar}
+          onPress={() => setShowLeadStatusSelector(true)}
+        >
+          <View style={styles.leadStatusLeft}>
+            <Text style={styles.leadStatusLabel}>Lead Status:</Text>
+            <LeadStatusBadge stage={leadStage} size="medium" />
+          </View>
+          <View style={styles.leadStatusRight}>
+            <Ionicons name="chevron-forward" size={20} color={colors.textMedium} />
+          </View>
+        </TouchableOpacity>
+      )}
+
       <KeyboardAvoidingView 
         style={styles.content}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -1025,6 +1108,18 @@ const ConversationScreen = ({ navigation, route }) => {
           isMuted={isMuted}
           isSpeakerOn={false}
         />
+
+        {/* Lead Status Selector Modal (Business Mode Only) */}
+        {isBusinessMode && (
+          <LeadStatusSelector
+            visible={showLeadStatusSelector}
+            onClose={() => setShowLeadStatusSelector(false)}
+            currentStage={leadStage}
+            onStageChange={handleLeadStageChange}
+            onSaveNotes={handleSaveLeadNotes}
+            initialNotes={leadNotes}
+          />
+        )}
       </KeyboardAvoidingView>
     </View>
   );
@@ -1374,6 +1469,31 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: colors.textMedium,
     fontStyle: 'italic',
+  },
+  // Lead status bar styles (business mode)
+  leadStatusBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: colors.cardWhite,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.borderLight,
+  },
+  leadStatusLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  leadStatusLabel: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: colors.textMedium,
+    marginRight: 10,
+  },
+  leadStatusRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
 });
 
